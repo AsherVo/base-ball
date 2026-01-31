@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="game-container">
+    <header class="game-header">
+      <div id="room-info">Room: <span id="room-id">-</span></div>
+      <div id="player-info">Player: <span id="player-name">-</span></div>
+      <button id="leave-btn">Leave Game</button>
+    </header>
+
+    <main class="game-main">
+      <canvas id="game-canvas" width="800" height="600"></canvas>
+    </main>
+
+    <aside class="game-sidebar">
+      <h3>Players</h3>
+      <ul id="players-list"></ul>
+      <div id="game-status">Connected</div>
+    </aside>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/constants.js"></script>
+  <script src="/js/network.js"></script>
+  <script src="/js/game.js"></script>
+</body>
+</html>

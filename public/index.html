@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Lobby</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Game Lobby</h1>
+
+    <!-- Name Input -->
+    <section id="name-section" class="section">
+      <h2>Enter Your Name</h2>
+      <input type="text" id="player-name" placeholder="Your name" maxlength="20">
+      <button id="set-name-btn">Set Name</button>
+    </section>
+
+    <!-- Lobby Actions (hidden until name is set) -->
+    <section id="lobby-section" class="section hidden">
+      <h2>Welcome, <span id="display-name"></span>!</h2>
+
+      <div class="actions">
+        <div class="action-group">
+          <h3>Create Room</h3>
+          <button id="create-room-btn">Create Room</button>
+        </div>
+
+        <div class="action-group">
+          <h3>Join Room</h3>
+          <input type="text" id="room-id-input" placeholder="Room ID" maxlength="6">
+          <button id="join-room-btn">Join</button>
+        </div>
+
+        <div class="action-group">
+          <h3>Quick Match</h3>
+          <button id="quick-match-btn">Find Match</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Room Status (shown when in a room) -->
+    <section id="room-section" class="section hidden">
+      <h2>Room: <span id="current-room-id"></span></h2>
+      <p>Share this room ID with your opponent!</p>
+
+      <div id="players-list">
+        <h3>Players:</h3>
+        <ul id="players"></ul>
+      </div>
+
+      <div id="room-status"></div>
+
+      <div class="room-actions">
+        <button id="leave-room-btn">Leave Room</button>
+        <button id="start-game-btn" class="primary hidden">Start Game</button>
+      </div>
+    </section>
+
+    <!-- Status Messages -->
+    <div id="status-message"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/shared/constants.js"></script>
+  <script src="/js/network.js"></script>
+  <script src="/js/lobby.js"></script>
+</body>
+</html>
