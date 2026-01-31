@@ -26,4 +26,6 @@ class Actor {
 // Export for both Node.js and browser
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Actor;
+} else if (typeof window !== 'undefined') {
+  window.Actor = Actor;
 }

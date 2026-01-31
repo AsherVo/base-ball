@@ -38,6 +38,7 @@ function startCountdown(io, roomId) {
       console.log(`Countdown in room ${roomId}: ${count}`);
     } else {
       clearInterval(interval);
+      room.countdownInterval = null;
       room.countdownActive = false;
 
       // Create world and start the game

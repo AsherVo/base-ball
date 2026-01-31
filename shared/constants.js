@@ -19,4 +19,6 @@ const CONSTANTS = {
 // Export for both Node.js and browser
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = CONSTANTS;
+} else if (typeof window !== 'undefined') {
+  window.CONSTANTS = CONSTANTS;
 }
