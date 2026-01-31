@@ -20,7 +20,13 @@ const CONSTANTS = {
   CAMERA_ZOOM_MIN: 0.5,
   CAMERA_ZOOM_MAX: 2.0,
   CAMERA_ZOOM_SPEED: 0.1,     // zoom change per scroll tick
-  CAMERA_EDGE_SCROLL_SIZE: 30 // pixels from edge to trigger scroll
+  CAMERA_EDGE_SCROLL_SIZE: 30, // pixels from edge to trigger scroll
+
+  // Minimap settings
+  MINIMAP_WIDTH: 200,         // pixels
+  MINIMAP_HEIGHT: 200,        // pixels
+  MINIMAP_PADDING: 10,        // pixels from canvas edge
+  MINIMAP_BORDER_WIDTH: 2
 };
 
 // Export for both Node.js and browser

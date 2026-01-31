@@ -47,6 +47,7 @@ This project is solidly in a "prototype" state.
 - MacBook trackpad support: two-finger scroll to pan, pinch to zoom
 - Auto-detection of trackpad vs mouse input
 - On-screen controls hint
+- Minimap in lower-left corner showing map overview and camera viewport
 
 ## What's Missing
 

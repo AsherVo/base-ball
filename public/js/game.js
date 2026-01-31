@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let dragCameraStartX = 0;
   let dragCameraStartY = 0;
   let lastFrameTime = 0;
+  let isMinimapDragging = false;
 
   // Initialize
   if (!roomId || !playerName) {
@@ -180,6 +181,8 @@ document.addEventListener('DOMContentLoaded', () => {
       cameraX = dragCameraStartX - dx / cameraZoom;
       cameraY = dragCameraStartY - dy / cameraZoom;
       clampCamera();
+    } else if (isMinimapDragging) {
+      handleMinimapNavigation(e.clientX, e.clientY);
     }
   });
 
@@ -188,11 +191,68 @@ document.addEventListener('DOMContentLoaded', () => {
       isDragging = false;
       canvas.style.cursor = 'default';
     }
+    if (e.button === 0 && isMinimapDragging) {
+      isMinimapDragging = false;
+      canvas.style.cursor = 'default';
+    }
   });
 
   // Disable context menu on canvas for right-click drag
   canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+  });
+
+  // Helper to get minimap bounds
+  function getMinimapBounds() {
+    return {
+      x: CONSTANTS.MINIMAP_PADDING,
+      y: canvas.height - CONSTANTS.MINIMAP_HEIGHT - CONSTANTS.MINIMAP_PADDING - 20,
+      width: CONSTANTS.MINIMAP_WIDTH,
+      height: CONSTANTS.MINIMAP_HEIGHT
+    };
+  }
+
+  // Helper to check if point is in minimap and move camera there
+  function handleMinimapNavigation(clientX, clientY) {
+    if (!world) return false;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleFactorX = canvas.width / rect.width;
+    const scaleFactorY = canvas.height / rect.height;
+    const canvasX = (clientX - rect.left) * scaleFactorX;
+    const canvasY = (clientY - rect.top) * scaleFactorY;
+
+    const minimap = getMinimapBounds();
+
+    if (canvasX >= minimap.x && canvasX <= minimap.x + minimap.width &&
+        canvasY >= minimap.y && canvasY <= minimap.y + minimap.height) {
+
+      const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+      const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+      const scaleX = minimap.width / worldPixelWidth;
+      const scaleY = minimap.height / worldPixelHeight;
+
+      const worldX = (canvasX - minimap.x) / scaleX;
+      const worldY = (canvasY - minimap.y) / scaleY;
+
+      const viewWidth = canvas.width / cameraZoom;
+      const viewHeight = canvas.height / cameraZoom;
+      cameraX = worldX - viewWidth / 2;
+      cameraY = worldY - viewHeight / 2;
+      clampCamera();
+      return true;
+    }
+    return false;
+  }
+
+  // Minimap click/drag to navigate
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) { // Left click
+      if (handleMinimapNavigation(e.clientX, e.clientY)) {
+        isMinimapDragging = true;
+        canvas.style.cursor = 'crosshair';
+      }
+    }
   });
 
   // Update players list UI
@@ -293,6 +353,9 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.fillStyle = '#888888';
     ctx.font = '12px sans-serif';
     ctx.fillText('WASD/Arrows: Pan | Mouse wheel/+/-: Zoom | Right-drag: Pan | Trackpad: Scroll to pan, Pinch to zoom', 10, canvas.height - 10);
+
+    // Draw minimap
+    drawMinimap();
   }
 
   // Draw the map grid
@@ -359,6 +422,70 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2 * cameraZoom;
     ctx.stroke();
+  }
+
+  // Draw minimap in lower-left corner
+  function drawMinimap() {
+    const minimapW = CONSTANTS.MINIMAP_WIDTH;
+    const minimapH = CONSTANTS.MINIMAP_HEIGHT;
+    const padding = CONSTANTS.MINIMAP_PADDING;
+    const borderWidth = CONSTANTS.MINIMAP_BORDER_WIDTH;
+
+    // Position in lower-left corner
+    const minimapX = padding;
+    const minimapY = canvas.height - minimapH - padding - 20; // 20px offset for controls hint
+
+    // World dimensions in pixels
+    const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+    const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+
+    // Scale factor from world to minimap
+    const scaleX = minimapW / worldPixelWidth;
+    const scaleY = minimapH / worldPixelHeight;
+
+    // Draw minimap background
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.85)';
+    ctx.fillRect(minimapX, minimapY, minimapW, minimapH);
+
+    // Draw minimap border
+    ctx.strokeStyle = '#4a4a6e';
+    ctx.lineWidth = borderWidth;
+    ctx.strokeRect(minimapX, minimapY, minimapW, minimapH);
+
+    // Draw map representation (simplified grid)
+    ctx.fillStyle = '#2a2a4e';
+    ctx.fillRect(minimapX + borderWidth, minimapY + borderWidth,
+                 minimapW - borderWidth * 2, minimapH - borderWidth * 2);
+
+    // Draw actors on minimap
+    const actors = world.getAllActors();
+    for (const actor of actors) {
+      const dotX = minimapX + actor.x * scaleX;
+      const dotY = minimapY + actor.y * scaleY;
+      const dotRadius = Math.max(3, 16 * scaleX);
+
+      ctx.fillStyle = '#ff6b6b';
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Draw camera viewport rectangle
+    const viewWidth = canvas.width / cameraZoom;
+    const viewHeight = canvas.height / cameraZoom;
+
+    const viewRectX = minimapX + cameraX * scaleX;
+    const viewRectY = minimapY + cameraY * scaleY;
+    const viewRectW = viewWidth * scaleX;
+    const viewRectH = viewHeight * scaleY;
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(viewRectX, viewRectY, viewRectW, viewRectH);
+
+    // Fill viewport with semi-transparent white
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.fillRect(viewRectX, viewRectY, viewRectW, viewRectH);
   }
 
   // Zoom camera by delta amount
