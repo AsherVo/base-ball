@@ -34,6 +34,10 @@ class NetworkClient {
       this.socket.on('playerLeft', (data) => this.trigger('playerLeft', data));
       this.socket.on('matchReady', (data) => this.trigger('matchReady', data));
       this.socket.on('waitingForMatch', (data) => this.trigger('waitingForMatch', data));
+      this.socket.on('readyUpdate', (data) => this.trigger('readyUpdate', data));
+      this.socket.on('countdown', (data) => this.trigger('countdown', data));
+      this.socket.on('countdownCanceled', (data) => this.trigger('countdownCanceled', data));
+      this.socket.on('gameStart', (data) => this.trigger('gameStart', data));
       this.socket.on('error', (data) => this.trigger('error', data));
     });
   }
@@ -77,6 +81,10 @@ class NetworkClient {
 
   quickMatch() {
     this.socket.emit('quickMatch');
+  }
+
+  playerReady() {
+    this.socket.emit('playerReady');
   }
 
   // Generic emit for future game events

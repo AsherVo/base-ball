@@ -1,10 +1,53 @@
+const World = require('../../shared/world');
+const CONSTANTS = require('../../shared/constants');
+
 // Room state
 const rooms = new Map();
 const players = new Map();
 const waitingQueue = [];
 
+// Create initial world state for a new match
+function createMatchWorld() {
+  const world = new World();
+  // Create a single test actor in the center of the map
+  const centerX = (CONSTANTS.MAP_WIDTH * CONSTANTS.TILE_WIDTH) / 2;
+  const centerY = (CONSTANTS.MAP_HEIGHT * CONSTANTS.TILE_HEIGHT) / 2;
+  world.createActor(centerX, centerY, 'default');
+  return world;
+}
+
 function generateRoomId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+// Start countdown and then launch game
+function startCountdown(io, roomId) {
+  const room = rooms.get(roomId);
+  if (!room || room.countdownActive) return;
+
+  room.countdownActive = true;
+  let count = 3;
+
+  io.to(roomId).emit('countdown', { count });
+  console.log(`Countdown started in room ${roomId}: ${count}`);
+
+  const interval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      io.to(roomId).emit('countdown', { count });
+      console.log(`Countdown in room ${roomId}: ${count}`);
+    } else {
+      clearInterval(interval);
+      room.countdownActive = false;
+
+      // Create world and start the game
+      room.world = createMatchWorld();
+      io.to(roomId).emit('gameStart', { world: room.world.toJSON() });
+      console.log(`Game started in room ${roomId}`);
+    }
+  }, 1000);
+
+  room.countdownInterval = interval;
 }
 
 function setupSocketHandlers(io) {
@@ -41,7 +84,8 @@ function setupSocketHandlers(io) {
       rooms.set(roomId, {
         id: roomId,
         players: [socket.id],
-        host: socket.id
+        host: socket.id,
+        readyPlayers: new Set()
       });
 
       player.roomId = roomId;
@@ -81,6 +125,12 @@ function setupSocketHandlers(io) {
       player.roomId = roomId;
       socket.join(roomId);
 
+      // Cancel cleanup timer if someone rejoins
+      if (room.cleanupTimer) {
+        clearTimeout(room.cleanupTimer);
+        room.cleanupTimer = null;
+      }
+
       // Get all players in room
       const roomPlayers = room.players.map(pid => {
         const p = players.get(pid);
@@ -96,10 +146,46 @@ function setupSocketHandlers(io) {
 
       console.log(`${player.name} joined room ${roomId}`);
 
-      // Check if match is ready (2 players)
-      if (room.players.length === 2) {
+      // If room already has a world (game in progress), send it to the joining player
+      if (room.world) {
+        socket.emit('gameStart', { world: room.world.toJSON() });
+        console.log(`Sent existing world to ${player.name}`);
+      }
+
+      // Check if match is ready (2 players) and no world yet
+      if (room.players.length === 2 && !room.world) {
         io.to(roomId).emit('matchReady', { players: roomPlayers });
         console.log(`Match ready in room ${roomId}`);
+      }
+    });
+
+    // Player ready toggle
+    socket.on('playerReady', () => {
+      const player = players.get(socket.id);
+      if (!player || !player.roomId) return;
+
+      const room = rooms.get(player.roomId);
+      if (!room || room.world) return; // Can't ready if game already started
+
+      // Toggle ready state
+      if (room.readyPlayers.has(socket.id)) {
+        room.readyPlayers.delete(socket.id);
+      } else {
+        room.readyPlayers.add(socket.id);
+      }
+
+      // Broadcast ready state to room
+      const readyState = room.players.map(pid => ({
+        id: pid,
+        ready: room.readyPlayers.has(pid)
+      }));
+      io.to(player.roomId).emit('readyUpdate', { players: readyState });
+
+      console.log(`${player.name} is ${room.readyPlayers.has(socket.id) ? 'ready' : 'not ready'}`);
+
+      // Check if all players are ready (need exactly 2 players)
+      if (room.players.length === 2 && room.readyPlayers.size === 2) {
+        startCountdown(io, player.roomId);
       }
     });
 
@@ -130,7 +216,8 @@ function setupSocketHandlers(io) {
           rooms.set(roomId, {
             id: roomId,
             players: [opponentId, socket.id],
-            host: opponentId
+            host: opponentId,
+            readyPlayers: new Set()
           });
 
           opponent.roomId = roomId;
@@ -193,13 +280,39 @@ function leaveRoom(socket, io) {
   if (room) {
     room.players = room.players.filter(id => id !== socket.id);
 
+    // Remove from ready set
+    if (room.readyPlayers) {
+      room.readyPlayers.delete(socket.id);
+    }
+
+    // Cancel countdown if active
+    if (room.countdownInterval) {
+      clearInterval(room.countdownInterval);
+      room.countdownInterval = null;
+      room.countdownActive = false;
+      // Reset all ready states
+      if (room.readyPlayers) {
+        room.readyPlayers.clear();
+      }
+      io.to(roomId).emit('countdownCanceled', {});
+    }
+
     // Notify others
     socket.to(roomId).emit('playerLeft', { playerId: socket.id });
 
-    // Delete room if empty
-    if (room.players.length === 0) {
+    // Delete room if empty and no game in progress
+    // Keep rooms with active games alive for players to rejoin
+    if (room.players.length === 0 && !room.world) {
       rooms.delete(roomId);
       console.log(`Room ${roomId} deleted (empty)`);
+    } else if (room.players.length === 0 && room.world) {
+      // Game room empty - schedule cleanup after grace period
+      room.cleanupTimer = setTimeout(() => {
+        if (rooms.has(roomId) && rooms.get(roomId).players.length === 0) {
+          rooms.delete(roomId);
+          console.log(`Room ${roomId} deleted (abandoned game)`);
+        }
+      }, 30000); // 30 second grace period
     }
   }
 

@@ -109,12 +109,29 @@ button.primary:hover {
   margin-bottom: 5px;
 }
 
+#players li.ready {
+  background: rgba(40, 167, 69, 0.3);
+  border: 1px solid #28a745;
+}
+
 #room-status {
   margin: 15px 0;
   padding: 10px;
   background: #0f0f23;
   border-radius: 4px;
   text-align: center;
+}
+
+#countdown {
+  margin: 15px 0;
+  padding: 20px;
+  background: rgba(74, 158, 255, 0.2);
+  border: 2px solid #4a9eff;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  color: #4a9eff;
 }
 
 .room-actions {

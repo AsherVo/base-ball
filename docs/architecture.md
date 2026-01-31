@@ -40,7 +40,20 @@ The NetworkClient class wraps Socket.io to provide a clean API for game-specific
 
 ## Shared Code
 
-`shared/constants.js` contains values used by both client and server. It uses a UMD-style export pattern to work in both Node.js (CommonJS) and browser (global variable) environments.
+The `shared/` directory contains code used by both client and server. All files use a UMD-style export pattern to work in both Node.js (CommonJS) and browser (global variable) environments.
+
+- `shared/constants.js` - Game configuration (tick rate, map dimensions, tile sizes)
+- `shared/actor.js` - Actor class representing physical entities with position and sprite
+- `shared/world.js` - World class managing the map and all actors
+
+### World System
+
+The World class represents the physical state of a game match:
+- Contains a 100x100 tile map (configurable via constants)
+- Manages a collection of actors (entities with position and sprite)
+- Provides serialization methods (`toJSON`/`fromJSON`) for network transmission
+
+When a match starts, the server creates a World instance with a single test actor and broadcasts it to both clients via the `gameStart` event.
 
 ## Data Flow
 
@@ -48,6 +61,15 @@ Session data (room ID, player info) passes between lobby and game pages via brow
 
 ## Socket Events
 
-Client to server: `setName`, `createRoom`, `joinRoom`, `quickMatch`, `leaveRoom`
+Client to server: `setName`, `createRoom`, `joinRoom`, `quickMatch`, `leaveRoom`, `playerReady`
 
-Server to client: `roomCreated`, `roomJoined`, `playerJoined`, `playerLeft`, `matchReady`, `waitingForMatch`, `error`
+Server to client: `roomCreated`, `roomJoined`, `playerJoined`, `playerLeft`, `matchReady`, `waitingForMatch`, `readyUpdate`, `countdown`, `countdownCanceled`, `gameStart`, `error`
+
+### Game Start Flow
+
+1. When 2 players are in a room, `matchReady` is emitted
+2. Each player clicks "Ready" which sends `playerReady` to toggle their ready state
+3. Server broadcasts `readyUpdate` with all players' ready states
+4. When both players are ready, server starts a 3-second countdown, emitting `countdown` each second
+5. If a player leaves or the countdown is canceled, `countdownCanceled` is emitted
+6. After countdown completes, `gameStart` is emitted with the world state and both clients navigate to game page

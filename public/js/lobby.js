@@ -18,7 +18,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const playersList = document.getElementById('players');
   const roomStatus = document.getElementById('room-status');
   const leaveRoomBtn = document.getElementById('leave-room-btn');
-  const startGameBtn = document.getElementById('start-game-btn');
+  const readyBtn = document.getElementById('ready-btn');
+  const countdownDisplay = document.getElementById('countdown');
 
   const statusMessage = document.getElementById('status-message');
 
@@ -27,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentRoom = null;
   let players = [];
   let matchReady = false;
+  let isReady = false;
 
   // Helper functions
   function showStatus(message, isError = false) {
@@ -38,12 +40,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 3000);
   }
 
-  function updatePlayersDisplay() {
+  function updatePlayersDisplay(readyState = null) {
     playersList.innerHTML = '';
     players.forEach(player => {
       const li = document.createElement('li');
-      li.textContent = player.name;
+      const readyInfo = readyState?.find(p => p.id === player.id);
+      const readyMarker = readyInfo?.ready ? ' [Ready]' : '';
+      li.textContent = player.name + readyMarker;
       li.dataset.id = player.id;
+      if (readyInfo?.ready) {
+        li.classList.add('ready');
+      }
       playersList.appendChild(li);
     });
   }
@@ -108,15 +115,14 @@ document.addEventListener('DOMContentLoaded', () => {
     currentRoom = null;
     players = [];
     matchReady = false;
+    isReady = false;
+    countdownDisplay.classList.add('hidden');
     showLobby();
   });
 
-  startGameBtn.addEventListener('click', () => {
+  readyBtn.addEventListener('click', () => {
     if (matchReady && currentRoom) {
-      // Store room info for game page
-      sessionStorage.setItem('roomId', currentRoom);
-      sessionStorage.setItem('playerName', playerName);
-      window.location.href = '/game.html';
+      network.playerReady();
     }
   });
 
@@ -146,7 +152,10 @@ document.addEventListener('DOMContentLoaded', () => {
     players = players.filter(p => p.id !== data.playerId);
     updatePlayersDisplay();
     matchReady = false;
-    startGameBtn.classList.add('hidden');
+    isReady = false;
+    readyBtn.classList.add('hidden');
+    readyBtn.textContent = 'Ready';
+    countdownDisplay.classList.add('hidden');
     roomStatus.textContent = 'Waiting for opponent...';
     showStatus('Opponent left the room');
   });
@@ -155,9 +164,39 @@ document.addEventListener('DOMContentLoaded', () => {
     players = data.players;
     updatePlayersDisplay();
     matchReady = true;
-    roomStatus.textContent = 'Match ready!';
-    startGameBtn.classList.remove('hidden');
-    showStatus('Match ready! Click Start Game to begin.');
+    roomStatus.textContent = 'Both players here! Click Ready when you want to start.';
+    readyBtn.classList.remove('hidden');
+    showStatus('Click Ready when you want to start!');
+  });
+
+  network.on('readyUpdate', (data) => {
+    updatePlayersDisplay(data.players);
+    const myReady = data.players.find(p => p.id === network.socket.id);
+    isReady = myReady?.ready || false;
+    readyBtn.textContent = isReady ? 'Not Ready' : 'Ready';
+  });
+
+  network.on('countdown', (data) => {
+    countdownDisplay.classList.remove('hidden');
+    countdownDisplay.textContent = `Game starting in ${data.count}...`;
+    readyBtn.classList.add('hidden');
+    roomStatus.textContent = 'Get ready!';
+  });
+
+  network.on('countdownCanceled', () => {
+    countdownDisplay.classList.add('hidden');
+    isReady = false;
+    readyBtn.textContent = 'Ready';
+    readyBtn.classList.remove('hidden');
+    roomStatus.textContent = 'Countdown canceled. Click Ready to try again.';
+    showStatus('Countdown canceled - a player left or unreadied');
+  });
+
+  network.on('gameStart', (data) => {
+    // Store room info and navigate to game page
+    sessionStorage.setItem('roomId', currentRoom);
+    sessionStorage.setItem('playerName', playerName);
+    window.location.href = '/game.html';
   });
 
   network.on('waitingForMatch', (data) => {
