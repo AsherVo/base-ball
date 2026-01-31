@@ -1,20 +1,12 @@
 const World = require('../../shared/world');
 const CONSTANTS = require('../../shared/constants');
+const GameLoop = require('../game/GameLoop');
+const MapGenerator = require('../game/MapGenerator');
 
 // Room state
 const rooms = new Map();
 const players = new Map();
 const waitingQueue = [];
-
-// Create initial world state for a new match
-function createMatchWorld() {
-  const world = new World();
-  // Create a single test actor in the center of the map
-  const centerX = (CONSTANTS.MAP_WIDTH * CONSTANTS.TILE_WIDTH) / 2;
-  const centerY = (CONSTANTS.MAP_HEIGHT * CONSTANTS.TILE_HEIGHT) / 2;
-  world.createActor(centerX, centerY, 'default');
-  return world;
-}
 
 function generateRoomId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -41,14 +33,44 @@ function startCountdown(io, roomId) {
       room.countdownInterval = null;
       room.countdownActive = false;
 
-      // Create world and start the game
-      room.world = createMatchWorld();
-      io.to(roomId).emit('gameStart', { world: room.world.toJSON() });
-      console.log(`Game started in room ${roomId}`);
+      // Generate the map and start the game
+      startGame(io, roomId);
     }
   }, 1000);
 
   room.countdownInterval = interval;
+}
+
+// Start the actual game
+function startGame(io, roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  // Generate map with players
+  const { world, playerStates } = MapGenerator.generate(room.players);
+  room.world = world;
+  room.playerStates = playerStates;
+
+  // Create and start the game loop
+  room.gameLoop = new GameLoop(world, io, roomId, playerStates);
+  room.gameLoop.start();
+
+  // Send initial state to all players with their player index
+  for (const playerId of room.players) {
+    const playerSocket = io.sockets.sockets.get(playerId);
+    if (playerSocket) {
+      const playerIndex = world.getPlayerIndex(playerId);
+      const playerState = playerStates.get(playerId);
+      playerSocket.emit('gameStart', {
+        world: world.toJSON(),
+        playerId: playerId,
+        playerIndex: playerIndex,
+        playerState: playerState.toJSON()
+      });
+    }
+  }
+
+  console.log(`Game started in room ${roomId}`);
 }
 
 function setupSocketHandlers(io) {
@@ -149,7 +171,14 @@ function setupSocketHandlers(io) {
 
       // If room already has a world (game in progress), send it to the joining player
       if (room.world) {
-        socket.emit('gameStart', { world: room.world.toJSON() });
+        const playerIndex = room.world.getPlayerIndex(socket.id);
+        const playerState = room.playerStates?.get(socket.id);
+        socket.emit('gameStart', {
+          world: room.world.toJSON(),
+          playerId: socket.id,
+          playerIndex: playerIndex ?? room.players.indexOf(socket.id),
+          playerState: playerState?.toJSON()
+        });
         console.log(`Sent existing world to ${player.name}`);
       }
 
@@ -188,6 +217,18 @@ function setupSocketHandlers(io) {
       if (room.players.length === 2 && room.readyPlayers.size === 2) {
         startCountdown(io, player.roomId);
       }
+    });
+
+    // Handle player commands
+    socket.on('playerCommand', (command) => {
+      const player = players.get(socket.id);
+      if (!player || !player.roomId) return;
+
+      const room = rooms.get(player.roomId);
+      if (!room || !room.gameLoop) return;
+
+      // Queue the command for processing
+      room.gameLoop.queueCommand(socket.id, command);
     });
 
     // Quick match - auto matchmaking
@@ -307,6 +348,10 @@ function leaveRoom(socket, io) {
       rooms.delete(roomId);
       console.log(`Room ${roomId} deleted (empty)`);
     } else if (room.players.length === 0 && room.world) {
+      // Stop the game loop
+      if (room.gameLoop) {
+        room.gameLoop.stop();
+      }
       // Game room empty - schedule cleanup after grace period
       room.cleanupTimer = setTimeout(() => {
         if (rooms.has(roomId) && rooms.get(roomId).players.length === 0) {

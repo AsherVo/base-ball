@@ -38,6 +38,10 @@ class NetworkClient {
       this.socket.on('countdown', (data) => this.trigger('countdown', data));
       this.socket.on('countdownCanceled', (data) => this.trigger('countdownCanceled', data));
       this.socket.on('gameStart', (data) => this.trigger('gameStart', data));
+      this.socket.on('gameState', (data) => this.trigger('gameState', data));
+      this.socket.on('attackEvent', (data) => this.trigger('attackEvent', data));
+      this.socket.on('actorDeath', (data) => this.trigger('actorDeath', data));
+      this.socket.on('gameOver', (data) => this.trigger('gameOver', data));
       this.socket.on('error', (data) => this.trigger('error', data));
     });
   }
@@ -85,6 +89,11 @@ class NetworkClient {
 
   playerReady() {
     this.socket.emit('playerReady');
+  }
+
+  // Send a player command to the server
+  sendCommand(command) {
+    this.socket.emit('playerCommand', command);
   }
 
   // Generic emit for future game events

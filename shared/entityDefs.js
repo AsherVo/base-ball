@@ -1,0 +1,93 @@
+// Entity definitions for all game entities
+const EntityDefs = {
+  units: {
+    worker: {
+      type: 'unit',
+      subtype: 'worker',
+      health: 50,
+      speed: 120,
+      attack: 5,
+      attackRange: 30,
+      attackSpeed: 1,
+      cost: 50,
+      trainTime: 8,
+      supply: 1,
+      canGather: true,
+      canBuild: true
+    },
+    soldier: {
+      type: 'unit',
+      subtype: 'soldier',
+      health: 100,
+      speed: 100,
+      attack: 15,
+      attackRange: 50,
+      attackSpeed: 1.2,
+      cost: 100,
+      trainTime: 10,
+      supply: 2
+    }
+  },
+
+  buildings: {
+    base: {
+      type: 'building',
+      subtype: 'base',
+      health: 1000,
+      cost: 0, // Starting building
+      buildTime: 0,
+      trains: ['worker'],
+      suppliesProvided: 10
+    },
+    barracks: {
+      type: 'building',
+      subtype: 'barracks',
+      health: 400,
+      cost: 150,
+      buildTime: 15,
+      trains: ['soldier'],
+      suppliesProvided: 0
+    },
+    supplyDepot: {
+      type: 'building',
+      subtype: 'supplyDepot',
+      health: 200,
+      cost: 100,
+      buildTime: 10,
+      trains: [],
+      suppliesProvided: 8
+    }
+  },
+
+  resources: {
+    minerals: {
+      type: 'resource',
+      subtype: 'minerals',
+      amount: 1500,
+      gatherRate: 10 // minerals per second when gathering
+    }
+  },
+
+  special: {
+    ball: {
+      type: 'ball',
+      subtype: 'ball',
+      radius: 30
+    }
+  }
+};
+
+// Helper to get stats for creating an actor
+function getEntityDef(category, subtype) {
+  const categoryDefs = EntityDefs[category];
+  if (!categoryDefs) return null;
+  return categoryDefs[subtype] || null;
+}
+
+// Export for both Node.js and browser
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { EntityDefs, getEntityDef };
+} else if (typeof window !== 'undefined') {
+  window.EntityDefs = EntityDefs;
+  window.getEntityDef = getEntityDef;
+}

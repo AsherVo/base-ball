@@ -11,6 +11,10 @@
     <header class="game-header">
       <div id="room-info">Room: <span id="room-id">-</span></div>
       <div id="player-info">Player: <span id="player-name">-</span></div>
+      <div id="resource-info">
+        <span id="minerals-display">Minerals: 0</span>
+        <span id="supply-display">Supply: 0/0</span>
+      </div>
       <button id="leave-btn">Leave Game</button>
     </header>
 
@@ -31,18 +35,41 @@
         <span id="unit-id" class="stat-value">-</span>
       </div>
       <div class="unit-stat">
+        <span class="stat-label">Type:</span>
+        <span id="unit-type" class="stat-value">-</span>
+      </div>
+      <div class="unit-stat">
+        <span class="stat-label">Health:</span>
+        <span id="unit-health" class="stat-value">-</span>
+      </div>
+      <div class="unit-stat">
         <span class="stat-label">Position:</span>
         <span class="stat-value">(<span id="unit-x">-</span>, <span id="unit-y">-</span>)</span>
       </div>
-      <div class="unit-stat">
-        <span class="stat-label">Type:</span>
-        <span id="unit-sprite" class="stat-value">-</span>
+      <div id="unit-actions" class="unit-actions"></div>
+    </div>
+
+    <div id="build-menu" class="build-menu hidden">
+      <h3>Build</h3>
+      <button class="build-btn" data-building="barracks">Barracks (150)</button>
+      <button class="build-btn" data-building="supplyDepot">Supply Depot (100)</button>
+      <button id="cancel-build-btn">Cancel</button>
+    </div>
+
+    <div id="game-over-overlay" class="game-over-overlay hidden">
+      <div class="game-over-content">
+        <h1 id="game-over-title">Game Over</h1>
+        <p id="game-over-message"></p>
+        <button id="return-to-lobby-btn">Return to Lobby</button>
       </div>
     </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/shared/constants.js"></script>
+  <script src="/shared/entityDefs.js"></script>
+  <script src="/shared/commands.js"></script>
+  <script src="/shared/playerState.js"></script>
   <script src="/shared/actor.js"></script>
   <script src="/shared/world.js"></script>
   <script src="/js/network.js"></script>

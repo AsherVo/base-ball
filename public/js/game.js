@@ -1,4 +1,4 @@
-// Game client stub
+// Game client - handles rendering and player input
 document.addEventListener('DOMContentLoaded', () => {
   // Get room info from session storage
   const roomId = sessionStorage.getItem('roomId');
@@ -7,16 +7,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // Elements
   const roomIdDisplay = document.getElementById('room-id');
   const playerNameDisplay = document.getElementById('player-name');
+  const mineralsDisplay = document.getElementById('minerals-display');
+  const supplyDisplay = document.getElementById('supply-display');
   const playersList = document.getElementById('players-list');
   const gameStatus = document.getElementById('game-status');
   const leaveBtn = document.getElementById('leave-btn');
   const canvas = document.getElementById('game-canvas');
   const ctx = canvas.getContext('2d');
+  const unitInfoPanel = document.getElementById('unit-info-panel');
+  const buildMenu = document.getElementById('build-menu');
+  const gameOverOverlay = document.getElementById('game-over-overlay');
 
   // State
   let players = [];
   let gameRunning = false;
   let world = null;
+  let myPlayerId = null;
+  let myPlayerIndex = 0;
+  let myPlayerState = null;
 
   // Camera/viewport position (top-left corner in world pixels)
   let cameraX = 0;
@@ -33,12 +41,17 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastFrameTime = 0;
   let isMinimapDragging = false;
 
-  // Unit selection state
-  let selectedUnit = null;
-  const UNIT_RADIUS = 16; // Collision radius for selection
+  // Selection state
+  let selectedActors = [];
+  const UNIT_RADIUS = 16;
 
-  // Unit movement targets (actorId -> {x, y})
-  const unitMoveTargets = new Map();
+  // Build mode
+  let buildMode = null; // null or building type string
+  let buildGhostX = 0;
+  let buildGhostY = 0;
+
+  // Visual effects
+  const attackEffects = []; // {x, y, targetX, targetY, time}
 
   // Initialize
   if (!roomId || !playerName) {
@@ -79,17 +92,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
   network.on('gameStart', (data) => {
     world = World.fromJSON(data.world);
-    // Center camera on the map
-    const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
-    const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
-    cameraX = (worldPixelWidth - canvas.width) / 2;
-    cameraY = (worldPixelHeight - canvas.height) / 2;
-    // Clear any selection state
-    selectedUnit = null;
-    unitMoveTargets.clear();
+    myPlayerId = data.playerId;
+    myPlayerIndex = data.playerIndex;
+    if (data.playerState) {
+      myPlayerState = data.playerState;
+    }
+
+    // Center camera on player's base
+    const myBase = world.getPlayerBase(myPlayerId);
+    if (myBase) {
+      cameraX = myBase.x - canvas.width / 2;
+      cameraY = myBase.y - canvas.height / 2;
+    } else {
+      const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+      const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+      cameraX = (worldPixelWidth - canvas.width) / 2;
+      cameraY = (worldPixelHeight - canvas.height) / 2;
+    }
+
+    clampCamera();
+    selectedActors = [];
     updateUnitInfoPanel();
+    updateResourceDisplay();
     gameStatus.textContent = 'Game started!';
-    console.log('World received:', world);
+    console.log('World received:', world, 'I am player', myPlayerIndex);
+  });
+
+  network.on('gameState', (data) => {
+    // Update world from server state
+    world = World.fromJSON(data.world);
+
+    // Update player state
+    if (data.players && data.players[myPlayerId]) {
+      myPlayerState = data.players[myPlayerId];
+      updateResourceDisplay();
+    }
+
+    // Update selection references
+    updateSelectionReferences();
+  });
+
+  network.on('attackEvent', (data) => {
+    const attacker = world?.getActor(data.attackerId);
+    const target = world?.getActor(data.targetId);
+    if (attacker && target) {
+      attackEffects.push({
+        x: attacker.x,
+        y: attacker.y,
+        targetX: target.x,
+        targetY: target.y,
+        time: 0.2
+      });
+    }
+  });
+
+  network.on('actorDeath', (data) => {
+    // Remove from selection if dead
+    selectedActors = selectedActors.filter(a => a.id !== data.actorId);
+    updateUnitInfoPanel();
+  });
+
+  network.on('gameOver', (data) => {
+    const isWinner = data.winnerId === myPlayerId;
+    showGameOver(isWinner, data.reason);
   });
 
   network.on('error', (data) => {
@@ -112,6 +177,25 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.href = '/';
   });
 
+  // Return to lobby button
+  document.getElementById('return-to-lobby-btn')?.addEventListener('click', () => {
+    network.leaveRoom();
+    sessionStorage.removeItem('roomId');
+    window.location.href = '/';
+  });
+
+  // Build menu buttons
+  document.querySelectorAll('.build-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const buildingType = btn.dataset.building;
+      enterBuildMode(buildingType);
+    });
+  });
+
+  document.getElementById('cancel-build-btn')?.addEventListener('click', () => {
+    exitBuildMode();
+  });
+
   // Camera controls - Keyboard
   window.addEventListener('keydown', (e) => {
     keysPressed.add(e.key.toLowerCase());
@@ -123,9 +207,34 @@ document.addEventListener('DOMContentLoaded', () => {
       zoomCamera(-CONSTANTS.CAMERA_ZOOM_SPEED);
     }
 
-    // Escape key deselects unit
+    // Escape key - deselect or exit build mode
     if (e.key === 'Escape') {
-      deselectUnit();
+      if (buildMode) {
+        exitBuildMode();
+      } else {
+        deselectAll();
+      }
+    }
+
+    // B key - open build menu if worker selected
+    if (e.key === 'b' || e.key === 'B') {
+      if (hasSelectedWorker()) {
+        toggleBuildMenu();
+      }
+    }
+
+    // P key - push ball
+    if (e.key === 'p' || e.key === 'P') {
+      if (selectedActors.length > 0) {
+        sendPushBallCommand();
+      }
+    }
+
+    // S key - stop
+    if (e.key === 's' && !keysPressed.has('control')) {
+      if (selectedActors.length > 0) {
+        sendStopCommand();
+      }
     }
   });
 
@@ -142,48 +251,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const mouseY = e.clientY - rect.top;
 
     if (e.ctrlKey) {
-      // Pinch-to-zoom gesture (macOS trackpad sends ctrlKey + wheel for pinch)
-      // Use smaller zoom speed for smoother pinch control
       const zoomDelta = e.deltaY > 0 ? -CONSTANTS.CAMERA_ZOOM_SPEED * 0.5 : CONSTANTS.CAMERA_ZOOM_SPEED * 0.5;
       zoomCameraAt(zoomDelta, mouseX, mouseY);
     } else if (isTrackpadScroll(e)) {
-      // Trackpad two-finger scroll → pan
       cameraX += e.deltaX / cameraZoom;
       cameraY += e.deltaY / cameraZoom;
       clampCamera();
     } else {
-      // Mouse wheel → zoom
       const zoomDelta = e.deltaY > 0 ? -CONSTANTS.CAMERA_ZOOM_SPEED : CONSTANTS.CAMERA_ZOOM_SPEED;
       zoomCameraAt(zoomDelta, mouseX, mouseY);
     }
   }, { passive: false });
 
-  // Detect if wheel event is from trackpad vs mouse
   function isTrackpadScroll(e) {
-    // deltaMode 0 = pixels (trackpad), 1 = lines, 2 = pages (mouse)
     if (e.deltaMode !== 0) return false;
-
-    // Trackpads often have horizontal scroll component
     if (Math.abs(e.deltaX) > 0) return true;
-
-    // Mouse wheels typically report discrete values (multiples of ~100-120)
-    // Trackpads report smaller, more precise values
     const dominated = Math.abs(e.deltaY);
     if (dominated > 0 && dominated < 50) return true;
-
-    // Check for non-integer values (common with trackpads)
     if (e.deltaY % 1 !== 0) return true;
-
     return false;
   }
 
-  // Camera controls - Mouse drag pan (middle click) or move command (right click)
+  // Mouse controls
   let rightClickStartX = 0;
   let rightClickStartY = 0;
   let isRightClickDrag = false;
 
   canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 1) { // Middle click - always pan
+    if (e.button === 1) {
       e.preventDefault();
       isDragging = true;
       dragStartX = e.clientX;
@@ -191,33 +286,47 @@ document.addEventListener('DOMContentLoaded', () => {
       dragCameraStartX = cameraX;
       dragCameraStartY = cameraY;
       canvas.style.cursor = 'grabbing';
-    } else if (e.button === 2) { // Right click - could be move command or pan
+    } else if (e.button === 2) {
       e.preventDefault();
       rightClickStartX = e.clientX;
       rightClickStartY = e.clientY;
       isRightClickDrag = false;
-
-      // Start potential drag
       isDragging = true;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
       dragCameraStartX = cameraX;
       dragCameraStartY = cameraY;
+    } else if (e.button === 0) {
+      if (buildMode) {
+        handleBuildPlacement(e.clientX, e.clientY);
+        return;
+      }
+      if (handleMinimapNavigation(e.clientX, e.clientY)) {
+        isMinimapDragging = true;
+        canvas.style.cursor = 'crosshair';
+        return;
+      }
+      if (world) {
+        handleLeftClick(e.clientX, e.clientY, e.shiftKey);
+      }
     }
   });
 
   window.addEventListener('mousemove', (e) => {
+    // Update build ghost position
+    if (buildMode && world) {
+      const worldPos = screenToWorld(e.clientX, e.clientY);
+      buildGhostX = worldPos.x;
+      buildGhostY = worldPos.y;
+    }
+
     if (isDragging) {
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
-
-      // Check if this is a significant drag (more than 5 pixels)
       if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
         isRightClickDrag = true;
         canvas.style.cursor = 'grabbing';
       }
-
-      // Only actually pan if we've determined this is a drag
       if (isRightClickDrag) {
         cameraX = dragCameraStartX - dx / cameraZoom;
         cameraY = dragCameraStartY - dy / cameraZoom;
@@ -229,16 +338,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 1) { // Middle click
+    if (e.button === 1) {
       isDragging = false;
       canvas.style.cursor = 'default';
-    } else if (e.button === 2) { // Right click
+    } else if (e.button === 2) {
       isDragging = false;
       canvas.style.cursor = 'default';
-
-      // If this wasn't a drag and we have a selected unit, issue move command
-      if (!isRightClickDrag && selectedUnit && world) {
-        handleMoveCommand(e.clientX, e.clientY);
+      if (!isRightClickDrag && selectedActors.length > 0 && world) {
+        handleRightClick(e.clientX, e.clientY);
       }
     }
     if (e.button === 0 && isMinimapDragging) {
@@ -247,12 +354,188 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Disable context menu on canvas for right-click drag
   canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
   });
 
-  // Helper to get minimap bounds
+  // Command helpers
+  function sendMoveCommand(targetX, targetY) {
+    const myUnitIds = selectedActors
+      .filter(a => a.ownerId === myPlayerId && a.type === 'unit')
+      .map(a => a.id);
+    if (myUnitIds.length > 0) {
+      network.sendCommand(Commands.move(myUnitIds, targetX, targetY));
+    }
+  }
+
+  function sendAttackCommand(targetId) {
+    const myUnitIds = selectedActors
+      .filter(a => a.ownerId === myPlayerId && a.type === 'unit' && a.attack > 0)
+      .map(a => a.id);
+    if (myUnitIds.length > 0) {
+      network.sendCommand(Commands.attack(myUnitIds, targetId));
+    }
+  }
+
+  function sendGatherCommand(resourceId) {
+    const myWorkerIds = selectedActors
+      .filter(a => a.ownerId === myPlayerId && a.subtype === 'worker')
+      .map(a => a.id);
+    if (myWorkerIds.length > 0) {
+      network.sendCommand(Commands.gather(myWorkerIds, resourceId));
+    }
+  }
+
+  function sendBuildCommand(workerId, buildingType, x, y) {
+    network.sendCommand(Commands.build(workerId, buildingType, x, y));
+  }
+
+  function sendTrainCommand(buildingId, unitType) {
+    network.sendCommand(Commands.train(buildingId, unitType));
+  }
+
+  function sendPushBallCommand() {
+    const myUnitIds = selectedActors
+      .filter(a => a.ownerId === myPlayerId && a.type === 'unit')
+      .map(a => a.id);
+    if (myUnitIds.length > 0) {
+      network.sendCommand(Commands.pushBall(myUnitIds));
+    }
+  }
+
+  function sendStopCommand() {
+    const myUnitIds = selectedActors
+      .filter(a => a.ownerId === myPlayerId && a.type === 'unit')
+      .map(a => a.id);
+    if (myUnitIds.length > 0) {
+      network.sendCommand(Commands.stop(myUnitIds));
+    }
+  }
+
+  // Click handlers
+  function handleLeftClick(clientX, clientY, shiftKey) {
+    const worldPos = screenToWorld(clientX, clientY);
+    const clickedActor = getActorAtPosition(worldPos.x, worldPos.y);
+
+    if (clickedActor) {
+      if (shiftKey) {
+        // Shift+click: toggle selection
+        const idx = selectedActors.findIndex(a => a.id === clickedActor.id);
+        if (idx >= 0) {
+          selectedActors.splice(idx, 1);
+        } else {
+          selectedActors.push(clickedActor);
+        }
+      } else {
+        // Regular click: replace selection
+        selectedActors = [clickedActor];
+      }
+    } else {
+      if (!shiftKey) {
+        deselectAll();
+      }
+    }
+    updateUnitInfoPanel();
+  }
+
+  function handleRightClick(clientX, clientY) {
+    const worldPos = screenToWorld(clientX, clientY);
+    const clickedActor = getActorAtPosition(worldPos.x, worldPos.y);
+
+    if (clickedActor) {
+      if (clickedActor.type === 'resource') {
+        // Right-click on resource: gather
+        sendGatherCommand(clickedActor.id);
+      } else if (clickedActor.ownerId && clickedActor.ownerId !== myPlayerId) {
+        // Right-click on enemy: attack
+        sendAttackCommand(clickedActor.id);
+      } else {
+        // Right-click on friendly/neutral: move
+        sendMoveCommand(worldPos.x, worldPos.y);
+      }
+    } else {
+      // Right-click on empty space: move
+      sendMoveCommand(worldPos.x, worldPos.y);
+    }
+  }
+
+  function getActorAtPosition(worldX, worldY) {
+    if (!world) return null;
+    const actors = world.getAllActors();
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (const actor of actors) {
+      const radius = actor.type === 'ball' ? actor.radius : UNIT_RADIUS;
+      const dx = actor.x - worldX;
+      const dy = actor.y - worldY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist <= radius * 1.5 && dist < closestDist) {
+        closestDist = dist;
+        closest = actor;
+      }
+    }
+    return closest;
+  }
+
+  // Build mode
+  function hasSelectedWorker() {
+    return selectedActors.some(a => a.ownerId === myPlayerId && a.subtype === 'worker');
+  }
+
+  function toggleBuildMenu() {
+    buildMenu.classList.toggle('hidden');
+    updateBuildButtons();
+  }
+
+  function enterBuildMode(buildingType) {
+    buildMode = buildingType;
+    buildMenu.classList.add('hidden');
+    canvas.style.cursor = 'crosshair';
+  }
+
+  function exitBuildMode() {
+    buildMode = null;
+    canvas.style.cursor = 'default';
+  }
+
+  function updateBuildButtons() {
+    const buttons = document.querySelectorAll('.build-btn');
+    buttons.forEach(btn => {
+      const buildingType = btn.dataset.building;
+      const def = EntityDefs.buildings[buildingType];
+      const canAfford = myPlayerState && myPlayerState.minerals >= def.cost;
+      btn.disabled = !canAfford;
+    });
+  }
+
+  function handleBuildPlacement(clientX, clientY) {
+    if (!buildMode || !hasSelectedWorker()) return;
+
+    const worldPos = screenToWorld(clientX, clientY);
+    const worker = selectedActors.find(a => a.ownerId === myPlayerId && a.subtype === 'worker');
+    if (worker) {
+      sendBuildCommand(worker.id, buildMode, worldPos.x, worldPos.y);
+    }
+    exitBuildMode();
+  }
+
+  // Selection helpers
+  function deselectAll() {
+    selectedActors = [];
+    buildMenu.classList.add('hidden');
+    updateUnitInfoPanel();
+  }
+
+  function updateSelectionReferences() {
+    // Update actor references from new world state
+    selectedActors = selectedActors
+      .map(a => world?.getActor(a.id))
+      .filter(a => a != null);
+    updateUnitInfoPanel();
+  }
+
+  // Minimap helpers
   function getMinimapBounds() {
     return {
       x: CONSTANTS.MINIMAP_PADDING,
@@ -262,29 +545,23 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
 
-  // Helper to check if point is in minimap and move camera there
   function handleMinimapNavigation(clientX, clientY) {
     if (!world) return false;
-
     const rect = canvas.getBoundingClientRect();
     const scaleFactorX = canvas.width / rect.width;
     const scaleFactorY = canvas.height / rect.height;
     const canvasX = (clientX - rect.left) * scaleFactorX;
     const canvasY = (clientY - rect.top) * scaleFactorY;
-
     const minimap = getMinimapBounds();
 
     if (canvasX >= minimap.x && canvasX <= minimap.x + minimap.width &&
         canvasY >= minimap.y && canvasY <= minimap.y + minimap.height) {
-
       const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
       const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
       const scaleX = minimap.width / worldPixelWidth;
       const scaleY = minimap.height / worldPixelHeight;
-
       const worldX = (canvasX - minimap.x) / scaleX;
       const worldY = (canvasY - minimap.y) / scaleY;
-
       const viewWidth = canvas.width / cameraZoom;
       const viewHeight = canvas.height / cameraZoom;
       cameraX = worldX - viewWidth / 2;
@@ -295,130 +572,133 @@ document.addEventListener('DOMContentLoaded', () => {
     return false;
   }
 
-  // Left click: minimap navigation or unit selection
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 0) { // Left click
-      // First check if clicking on minimap
-      if (handleMinimapNavigation(e.clientX, e.clientY)) {
-        isMinimapDragging = true;
-        canvas.style.cursor = 'crosshair';
-        return;
-      }
-
-      // Otherwise, handle unit selection
-      if (world) {
-        handleUnitSelection(e.clientX, e.clientY);
-      }
-    }
-  });
-
-  // Update players list UI
+  // UI Updates
   function updatePlayersList() {
     playersList.innerHTML = '';
-    players.forEach(player => {
+    players.forEach((player, index) => {
       const li = document.createElement('li');
-      li.textContent = player.name;
+      const color = CONSTANTS.TEAM_COLORS[index] || '#fff';
+      li.innerHTML = `<span style="color: ${color};">\u25CF</span> ${player.name}`;
       playersList.appendChild(li);
     });
   }
 
-  // Game loop placeholder
+  function updateResourceDisplay() {
+    if (myPlayerState) {
+      mineralsDisplay.textContent = `Minerals: ${myPlayerState.minerals}`;
+      supplyDisplay.textContent = `Supply: ${myPlayerState.supply}/${myPlayerState.maxSupply}`;
+    }
+  }
+
+  function updateUnitInfoPanel() {
+    if (selectedActors.length === 0) {
+      unitInfoPanel.classList.add('hidden');
+      return;
+    }
+
+    unitInfoPanel.classList.remove('hidden');
+    const actor = selectedActors[0];
+
+    document.getElementById('unit-id').textContent = actor.id;
+    document.getElementById('unit-type').textContent = actor.subtype || actor.type;
+    document.getElementById('unit-health').textContent = `${Math.round(actor.health)}/${actor.maxHealth}`;
+    document.getElementById('unit-x').textContent = Math.round(actor.x);
+    document.getElementById('unit-y').textContent = Math.round(actor.y);
+
+    // Show actions for owned units/buildings
+    const actionsDiv = document.getElementById('unit-actions');
+    actionsDiv.innerHTML = '';
+
+    if (actor.ownerId === myPlayerId) {
+      if (actor.type === 'building' && actor.state !== 'constructing') {
+        const def = EntityDefs.buildings[actor.subtype];
+        if (def && def.trains) {
+          def.trains.forEach(unitType => {
+            const unitDef = EntityDefs.units[unitType];
+            const btn = document.createElement('button');
+            btn.textContent = `Train ${unitType} (${unitDef.cost})`;
+            btn.disabled = !myPlayerState || myPlayerState.minerals < unitDef.cost;
+            btn.addEventListener('click', () => sendTrainCommand(actor.id, unitType));
+            actionsDiv.appendChild(btn);
+          });
+        }
+      }
+
+      if (actor.subtype === 'worker') {
+        const buildBtn = document.createElement('button');
+        buildBtn.textContent = 'Build (B)';
+        buildBtn.addEventListener('click', toggleBuildMenu);
+        actionsDiv.appendChild(buildBtn);
+      }
+    }
+  }
+
+  function showGameOver(isWinner, reason) {
+    gameOverOverlay.classList.remove('hidden');
+    const content = gameOverOverlay.querySelector('.game-over-content');
+    const title = document.getElementById('game-over-title');
+    const message = document.getElementById('game-over-message');
+
+    if (isWinner) {
+      content.classList.add('victory');
+      content.classList.remove('defeat');
+      title.textContent = 'Victory!';
+      message.textContent = 'You pushed the ball into the enemy goal!';
+    } else {
+      content.classList.add('defeat');
+      content.classList.remove('victory');
+      title.textContent = 'Defeat';
+      message.textContent = 'The enemy scored a goal.';
+    }
+  }
+
+  // Game loop
   function startGameLoop() {
     if (gameRunning) return;
     gameRunning = true;
+    lastFrameTime = performance.now();
+    requestAnimationFrame(gameLoop);
+  }
 
-    // Draw initial state
+  function gameLoop(timestamp) {
+    if (!gameRunning) return;
+
+    const deltaTime = (timestamp - lastFrameTime) / 1000;
+    lastFrameTime = timestamp;
+
+    update(deltaTime);
     draw();
-
-    // Game loop using requestAnimationFrame
-    function gameLoop() {
-      if (!gameRunning) return;
-
-      update();
-      draw();
-
-      requestAnimationFrame(gameLoop);
-    }
 
     requestAnimationFrame(gameLoop);
   }
 
-  // Update game state
-  function update() {
-    const currentTime = performance.now();
-    const deltaTime = lastFrameTime ? (currentTime - lastFrameTime) / 1000 : 0;
-    lastFrameTime = currentTime;
-
+  function update(deltaTime) {
     // Handle keyboard camera panning
     if (world) {
       const panSpeed = CONSTANTS.CAMERA_PAN_SPEED / cameraZoom;
       const panAmount = panSpeed * deltaTime;
 
-      if (keysPressed.has('w') || keysPressed.has('arrowup')) {
-        cameraY -= panAmount;
-      }
-      if (keysPressed.has('s') || keysPressed.has('arrowdown')) {
-        cameraY += panAmount;
-      }
-      if (keysPressed.has('a') || keysPressed.has('arrowleft')) {
-        cameraX -= panAmount;
-      }
-      if (keysPressed.has('d') || keysPressed.has('arrowright')) {
-        cameraX += panAmount;
-      }
-
+      if (keysPressed.has('w') || keysPressed.has('arrowup')) cameraY -= panAmount;
+      if (keysPressed.has('s') || keysPressed.has('arrowdown')) cameraY += panAmount;
+      if (keysPressed.has('a') || keysPressed.has('arrowleft')) cameraX -= panAmount;
+      if (keysPressed.has('d') || keysPressed.has('arrowright')) cameraX += panAmount;
       clampCamera();
     }
 
-    // Update unit positions (move toward targets)
-    if (world) {
-      updateUnitMovement(deltaTime);
+    // Update attack effects
+    for (let i = attackEffects.length - 1; i >= 0; i--) {
+      attackEffects[i].time -= deltaTime;
+      if (attackEffects[i].time <= 0) {
+        attackEffects.splice(i, 1);
+      }
     }
   }
 
-  // Update unit movement toward targets
-  function updateUnitMovement(deltaTime) {
-    const MOVE_SPEED = 150; // pixels per second
-
-    for (const [actorId, target] of unitMoveTargets.entries()) {
-      const actor = world.getActor(actorId);
-      if (!actor) {
-        unitMoveTargets.delete(actorId);
-        continue;
-      }
-
-      const dx = target.x - actor.x;
-      const dy = target.y - actor.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < 2) {
-        // Arrived at target
-        actor.x = target.x;
-        actor.y = target.y;
-        unitMoveTargets.delete(actorId);
-      } else {
-        // Move toward target
-        const moveAmount = MOVE_SPEED * deltaTime;
-        const ratio = Math.min(moveAmount / dist, 1);
-        actor.x += dx * ratio;
-        actor.y += dy * ratio;
-      }
-    }
-
-    // Update unit info panel if selected unit moved
-    if (selectedUnit) {
-      updateUnitInfoPanel();
-    }
-  }
-
-  // Render game
   function draw() {
-    // Clear canvas
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (!world) {
-      // Show waiting message if world not loaded
       ctx.fillStyle = '#ffffff';
       ctx.font = '24px sans-serif';
       ctx.textAlign = 'center';
@@ -429,35 +709,21 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // Draw map tiles
     drawMap();
-
-    // Draw actors
+    drawGoals();
     drawActors();
-
-    // Draw UI overlay
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(`Room: ${roomId} | Players: ${players.length} | Zoom: ${Math.round(cameraZoom * 100)}%`, 10, 20);
-
-    // Draw controls hint
-    ctx.fillStyle = '#888888';
-    ctx.font = '12px sans-serif';
-    ctx.fillText('Left-click: Select unit | Right-click: Move | Escape: Deselect | WASD: Pan | Wheel: Zoom', 10, canvas.height - 10);
-
-    // Draw minimap
+    drawAttackEffects();
+    drawBuildGhost();
+    drawUI();
     drawMinimap();
   }
 
-  // Draw the map grid
   function drawMap() {
     const tileW = CONSTANTS.TILE_WIDTH;
     const tileH = CONSTANTS.TILE_HEIGHT;
     const scaledTileW = tileW * cameraZoom;
     const scaledTileH = tileH * cameraZoom;
 
-    // Calculate visible tile range (accounting for zoom)
     const viewWidth = canvas.width / cameraZoom;
     const viewHeight = canvas.height / cameraZoom;
     const startTileX = Math.floor(cameraX / tileW);
@@ -465,7 +731,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const endTileX = Math.ceil((cameraX + viewWidth) / tileW);
     const endTileY = Math.ceil((cameraY + viewHeight) / tileH);
 
-    // Draw visible tiles
     for (let ty = startTileY; ty <= endTileY && ty < world.height; ty++) {
       for (let tx = startTileX; tx <= endTileX && tx < world.width; tx++) {
         if (tx < 0 || ty < 0) continue;
@@ -473,153 +738,372 @@ document.addEventListener('DOMContentLoaded', () => {
         const screenX = (tx * tileW - cameraX) * cameraZoom;
         const screenY = (ty * tileH - cameraY) * cameraZoom;
 
-        // Alternate colors for checkerboard pattern
         ctx.fillStyle = (tx + ty) % 2 === 0 ? '#2a2a4e' : '#252545';
         ctx.fillRect(screenX, screenY, scaledTileW, scaledTileH);
 
-        // Draw grid lines
         ctx.strokeStyle = '#3a3a5e';
         ctx.strokeRect(screenX, screenY, scaledTileW, scaledTileH);
       }
     }
   }
 
-  // Draw all actors
+  function drawGoals() {
+    const worldWidth = world.width * CONSTANTS.TILE_WIDTH;
+    const worldHeight = world.height * CONSTANTS.TILE_HEIGHT;
+    const goalWidth = CONSTANTS.GOAL_WIDTH;
+    const goalHeight = CONSTANTS.GOAL_HEIGHT;
+    const goalTop = (worldHeight - goalHeight) / 2;
+
+    // Left goal (blue team defends)
+    const leftGoalScreenX = (0 - cameraX) * cameraZoom;
+    const leftGoalScreenY = (goalTop - cameraY) * cameraZoom;
+    ctx.fillStyle = 'rgba(74, 144, 217, 0.3)';
+    ctx.fillRect(leftGoalScreenX, leftGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
+    ctx.strokeStyle = CONSTANTS.TEAM_COLORS[0];
+    ctx.lineWidth = 3;
+    ctx.strokeRect(leftGoalScreenX, leftGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
+
+    // Right goal (red team defends)
+    const rightGoalScreenX = (worldWidth - goalWidth - cameraX) * cameraZoom;
+    const rightGoalScreenY = (goalTop - cameraY) * cameraZoom;
+    ctx.fillStyle = 'rgba(217, 74, 74, 0.3)';
+    ctx.fillRect(rightGoalScreenX, rightGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
+    ctx.strokeStyle = CONSTANTS.TEAM_COLORS[1];
+    ctx.lineWidth = 3;
+    ctx.strokeRect(rightGoalScreenX, rightGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
+  }
+
   function drawActors() {
     const actors = world.getAllActors();
+    // Sort by y position for pseudo-depth
+    actors.sort((a, b) => a.y - b.y);
+
     for (const actor of actors) {
-      drawActor(actor);
+      if (actor.type === 'ball') {
+        drawBall(actor);
+      } else if (actor.type === 'resource') {
+        drawResource(actor);
+      } else if (actor.type === 'building') {
+        drawBuilding(actor);
+      } else {
+        drawUnit(actor);
+      }
     }
   }
 
-  // Draw a single actor (unit)
-  function drawActor(actor) {
+  function drawUnit(actor) {
     const screenX = (actor.x - cameraX) * cameraZoom;
     const screenY = (actor.y - cameraY) * cameraZoom;
     const radius = UNIT_RADIUS * cameraZoom;
 
-    // Skip if off-screen
     if (screenX < -radius * 2 || screenX > canvas.width + radius * 2 ||
         screenY < -radius * 2 || screenY > canvas.height + radius * 2) {
       return;
     }
 
-    const isSelected = selectedUnit && selectedUnit.id === actor.id;
+    const isSelected = selectedActors.some(a => a.id === actor.id);
+    const playerIndex = world.getPlayerIndex(actor.ownerId);
+    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
 
-    // Draw selection indicator (ring behind the unit)
+    // Selection indicator
     if (isSelected) {
       ctx.strokeStyle = '#4aff4a';
       ctx.lineWidth = 3 * cameraZoom;
       ctx.beginPath();
       ctx.arc(screenX, screenY, radius + 6 * cameraZoom, 0, Math.PI * 2);
       ctx.stroke();
-
-      // Draw pulsing glow effect
-      const pulse = Math.sin(performance.now() / 200) * 0.3 + 0.5;
-      ctx.strokeStyle = `rgba(74, 255, 74, ${pulse})`;
-      ctx.lineWidth = 2 * cameraZoom;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, radius + 10 * cameraZoom, 0, Math.PI * 2);
-      ctx.stroke();
     }
 
-    // Draw actor as a circle (placeholder sprite)
-    ctx.fillStyle = '#ff6b6b';
+    // Unit body
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw outline
-    ctx.strokeStyle = isSelected ? '#4aff4a' : '#ffffff';
+    // Unit outline
+    ctx.strokeStyle = isSelected ? '#4aff4a' : '#fff';
     ctx.lineWidth = 2 * cameraZoom;
     ctx.stroke();
 
-    // Draw move target indicator if this unit has one
-    const target = unitMoveTargets.get(actor.id);
-    if (target) {
-      drawMoveTarget(actor, target);
+    // Worker/soldier indicator
+    if (actor.subtype === 'worker') {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (actor.subtype === 'soldier') {
+      ctx.fillStyle = '#fff';
+      const size = radius * 0.4;
+      ctx.fillRect(screenX - size/2, screenY - size/2, size, size);
+    }
+
+    // Health bar
+    drawHealthBar(screenX, screenY - radius - 10 * cameraZoom, actor);
+
+    // Carry indicator for workers
+    if (actor.carryAmount > 0) {
+      ctx.fillStyle = '#4aefff';
+      ctx.font = `${10 * cameraZoom}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(`+${actor.carryAmount}`, screenX, screenY + radius + 12 * cameraZoom);
     }
   }
 
-  // Draw move target indicator
-  function drawMoveTarget(actor, target) {
-    const targetScreenX = (target.x - cameraX) * cameraZoom;
-    const targetScreenY = (target.y - cameraY) * cameraZoom;
-    const actorScreenX = (actor.x - cameraX) * cameraZoom;
-    const actorScreenY = (actor.y - cameraY) * cameraZoom;
+  function drawBuilding(actor) {
+    const screenX = (actor.x - cameraX) * cameraZoom;
+    const screenY = (actor.y - cameraY) * cameraZoom;
+    const size = 40 * cameraZoom;
 
-    // Draw line from actor to target
-    ctx.strokeStyle = 'rgba(74, 255, 74, 0.5)';
+    const isSelected = selectedActors.some(a => a.id === actor.id);
+    const playerIndex = world.getPlayerIndex(actor.ownerId);
+    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+
+    // Selection indicator
+    if (isSelected) {
+      ctx.strokeStyle = '#4aff4a';
+      ctx.lineWidth = 3 * cameraZoom;
+      ctx.strokeRect(screenX - size/2 - 6*cameraZoom, screenY - size/2 - 6*cameraZoom,
+                     size + 12*cameraZoom, size + 12*cameraZoom);
+    }
+
+    // Building body
+    ctx.fillStyle = actor.state === 'constructing' ? `${color}88` : color;
+    ctx.fillRect(screenX - size/2, screenY - size/2, size, size);
+
+    ctx.strokeStyle = isSelected ? '#4aff4a' : '#fff';
     ctx.lineWidth = 2 * cameraZoom;
-    ctx.setLineDash([5 * cameraZoom, 5 * cameraZoom]);
+    ctx.strokeRect(screenX - size/2, screenY - size/2, size, size);
+
+    // Building type indicator
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${12 * cameraZoom}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = actor.subtype === 'base' ? 'B' : actor.subtype === 'barracks' ? 'R' : 'S';
+    ctx.fillText(label, screenX, screenY);
+
+    // Health bar
+    drawHealthBar(screenX, screenY - size/2 - 10 * cameraZoom, actor);
+
+    // Construction progress
+    if (actor.state === 'constructing' && actor.constructionProgress != null) {
+      const progress = actor.constructionProgress / actor.maxConstructionTime;
+      const barWidth = size;
+      const barHeight = 6 * cameraZoom;
+      const barY = screenY + size/2 + 4 * cameraZoom;
+
+      ctx.fillStyle = '#333';
+      ctx.fillRect(screenX - barWidth/2, barY, barWidth, barHeight);
+      ctx.fillStyle = '#ffa500';
+      ctx.fillRect(screenX - barWidth/2, barY, barWidth * progress, barHeight);
+    }
+
+    // Training indicator
+    if (actor.trainingQueue && actor.trainingQueue.length > 0) {
+      const training = actor.trainingQueue[0];
+      const progress = training.progress / training.trainTime;
+      const barWidth = size;
+      const barHeight = 4 * cameraZoom;
+      const barY = screenY + size/2 + 12 * cameraZoom;
+
+      ctx.fillStyle = '#333';
+      ctx.fillRect(screenX - barWidth/2, barY, barWidth, barHeight);
+      ctx.fillStyle = '#4aff4a';
+      ctx.fillRect(screenX - barWidth/2, barY, barWidth * progress, barHeight);
+
+      ctx.fillStyle = '#fff';
+      ctx.font = `${8 * cameraZoom}px sans-serif`;
+      ctx.fillText(`${actor.trainingQueue.length}`, screenX + barWidth/2 + 8*cameraZoom, barY + barHeight/2);
+    }
+  }
+
+  function drawResource(actor) {
+    const screenX = (actor.x - cameraX) * cameraZoom;
+    const screenY = (actor.y - cameraY) * cameraZoom;
+    const size = 25 * cameraZoom;
+
+    // Crystal shape
+    ctx.fillStyle = '#4aefff';
     ctx.beginPath();
-    ctx.moveTo(actorScreenX, actorScreenY);
-    ctx.lineTo(targetScreenX, targetScreenY);
+    ctx.moveTo(screenX, screenY - size);
+    ctx.lineTo(screenX + size * 0.7, screenY);
+    ctx.lineTo(screenX, screenY + size * 0.5);
+    ctx.lineTo(screenX - size * 0.7, screenY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2 * cameraZoom;
     ctx.stroke();
-    ctx.setLineDash([]);
 
-    // Draw target marker (X)
-    const markerSize = 8 * cameraZoom;
-    ctx.strokeStyle = '#4aff4a';
-    ctx.lineWidth = 2 * cameraZoom;
+    // Amount display
+    ctx.fillStyle = '#fff';
+    ctx.font = `${10 * cameraZoom}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(actor.amount.toString(), screenX, screenY + size + 10 * cameraZoom);
+  }
+
+  function drawBall(actor) {
+    const screenX = (actor.x - cameraX) * cameraZoom;
+    const screenY = (actor.y - cameraY) * cameraZoom;
+    const radius = actor.radius * cameraZoom;
+
+    // Ball shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
     ctx.beginPath();
-    ctx.moveTo(targetScreenX - markerSize, targetScreenY - markerSize);
-    ctx.lineTo(targetScreenX + markerSize, targetScreenY + markerSize);
-    ctx.moveTo(targetScreenX + markerSize, targetScreenY - markerSize);
-    ctx.lineTo(targetScreenX - markerSize, targetScreenY + markerSize);
+    ctx.ellipse(screenX + 5*cameraZoom, screenY + 5*cameraZoom, radius, radius * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ball body
+    const gradient = ctx.createRadialGradient(
+      screenX - radius*0.3, screenY - radius*0.3, 0,
+      screenX, screenY, radius
+    );
+    gradient.addColorStop(0, '#fff');
+    gradient.addColorStop(0.5, '#ddd');
+    gradient.addColorStop(1, '#888');
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2 * cameraZoom;
+    ctx.stroke();
+
+    // Ball pattern
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1 * cameraZoom;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius * 0.6, 0, Math.PI * 2);
     ctx.stroke();
   }
 
-  // Draw minimap in lower-left corner
+  function drawHealthBar(screenX, screenY, actor) {
+    if (actor.health === actor.maxHealth) return;
+
+    const barWidth = 30 * cameraZoom;
+    const barHeight = 4 * cameraZoom;
+    const healthPercent = actor.health / actor.maxHealth;
+
+    ctx.fillStyle = '#333';
+    ctx.fillRect(screenX - barWidth/2, screenY, barWidth, barHeight);
+
+    ctx.fillStyle = healthPercent > 0.5 ? '#4aff4a' : healthPercent > 0.25 ? '#ffa500' : '#ff4a4a';
+    ctx.fillRect(screenX - barWidth/2, screenY, barWidth * healthPercent, barHeight);
+  }
+
+  function drawAttackEffects() {
+    for (const effect of attackEffects) {
+      const startX = (effect.x - cameraX) * cameraZoom;
+      const startY = (effect.y - cameraY) * cameraZoom;
+      const endX = (effect.targetX - cameraX) * cameraZoom;
+      const endY = (effect.targetY - cameraY) * cameraZoom;
+
+      const alpha = effect.time / 0.2;
+      ctx.strokeStyle = `rgba(255, 100, 100, ${alpha})`;
+      ctx.lineWidth = 3 * cameraZoom;
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+    }
+  }
+
+  function drawBuildGhost() {
+    if (!buildMode) return;
+
+    const screenX = (buildGhostX - cameraX) * cameraZoom;
+    const screenY = (buildGhostY - cameraY) * cameraZoom;
+    const size = 40 * cameraZoom;
+
+    ctx.fillStyle = 'rgba(74, 255, 74, 0.3)';
+    ctx.fillRect(screenX - size/2, screenY - size/2, size, size);
+
+    ctx.strokeStyle = '#4aff4a';
+    ctx.lineWidth = 2 * cameraZoom;
+    ctx.setLineDash([5 * cameraZoom, 5 * cameraZoom]);
+    ctx.strokeRect(screenX - size/2, screenY - size/2, size, size);
+    ctx.setLineDash([]);
+  }
+
+  function drawUI() {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Room: ${roomId} | Zoom: ${Math.round(cameraZoom * 100)}%`, 10, 20);
+
+    ctx.fillStyle = '#888888';
+    ctx.font = '12px sans-serif';
+    const hint = buildMode
+      ? 'Click to place building | Escape: Cancel'
+      : 'Left: Select | Right: Command | B: Build | P: Push Ball | WASD: Pan';
+    ctx.fillText(hint, 10, canvas.height - 10);
+  }
+
   function drawMinimap() {
     const minimapW = CONSTANTS.MINIMAP_WIDTH;
     const minimapH = CONSTANTS.MINIMAP_HEIGHT;
     const padding = CONSTANTS.MINIMAP_PADDING;
     const borderWidth = CONSTANTS.MINIMAP_BORDER_WIDTH;
 
-    // Position in lower-left corner
     const minimapX = padding;
-    const minimapY = canvas.height - minimapH - padding - 20; // 20px offset for controls hint
+    const minimapY = canvas.height - minimapH - padding - 20;
 
-    // World dimensions in pixels
     const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
     const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
-
-    // Scale factor from world to minimap
     const scaleX = minimapW / worldPixelWidth;
     const scaleY = minimapH / worldPixelHeight;
 
-    // Draw minimap background
+    // Background
     ctx.fillStyle = 'rgba(20, 20, 40, 0.85)';
     ctx.fillRect(minimapX, minimapY, minimapW, minimapH);
 
-    // Draw minimap border
+    // Border
     ctx.strokeStyle = '#4a4a6e';
     ctx.lineWidth = borderWidth;
     ctx.strokeRect(minimapX, minimapY, minimapW, minimapH);
 
-    // Draw map representation (simplified grid)
-    ctx.fillStyle = '#2a2a4e';
-    ctx.fillRect(minimapX + borderWidth, minimapY + borderWidth,
-                 minimapW - borderWidth * 2, minimapH - borderWidth * 2);
+    // Goals on minimap
+    const goalWidth = CONSTANTS.GOAL_WIDTH * scaleX;
+    const goalHeight = CONSTANTS.GOAL_HEIGHT * scaleY;
+    const goalTop = ((worldPixelHeight - CONSTANTS.GOAL_HEIGHT) / 2) * scaleY;
 
-    // Draw actors on minimap
+    ctx.fillStyle = 'rgba(74, 144, 217, 0.5)';
+    ctx.fillRect(minimapX, minimapY + goalTop, goalWidth, goalHeight);
+
+    ctx.fillStyle = 'rgba(217, 74, 74, 0.5)';
+    ctx.fillRect(minimapX + minimapW - goalWidth, minimapY + goalTop, goalWidth, goalHeight);
+
+    // Actors on minimap
     const actors = world.getAllActors();
     for (const actor of actors) {
       const dotX = minimapX + actor.x * scaleX;
       const dotY = minimapY + actor.y * scaleY;
-      const dotRadius = Math.max(3, 16 * scaleX);
+      let dotRadius = 3;
+      let color = '#888';
 
-      ctx.fillStyle = '#ff6b6b';
+      if (actor.type === 'ball') {
+        dotRadius = 5;
+        color = '#fff';
+      } else if (actor.type === 'resource') {
+        color = '#4aefff';
+      } else {
+        const playerIndex = world.getPlayerIndex(actor.ownerId);
+        color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+        if (actor.type === 'building') dotRadius = 5;
+      }
+
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Draw camera viewport rectangle
+    // Camera viewport
     const viewWidth = canvas.width / cameraZoom;
     const viewHeight = canvas.height / cameraZoom;
-
     const viewRectX = minimapX + cameraX * scaleX;
     const viewRectY = minimapY + cameraY * scaleY;
     const viewRectW = viewWidth * scaleX;
@@ -629,12 +1113,11 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.lineWidth = 2;
     ctx.strokeRect(viewRectX, viewRectY, viewRectW, viewRectH);
 
-    // Fill viewport with semi-transparent white
     ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
     ctx.fillRect(viewRectX, viewRectY, viewRectW, viewRectH);
   }
 
-  // Zoom camera by delta amount
+  // Camera helpers
   function zoomCamera(delta) {
     const oldZoom = cameraZoom;
     cameraZoom = Math.max(CONSTANTS.CAMERA_ZOOM_MIN,
@@ -642,138 +1125,36 @@ document.addEventListener('DOMContentLoaded', () => {
     return oldZoom !== cameraZoom;
   }
 
-  // Zoom camera toward a specific screen position
   function zoomCameraAt(delta, screenX, screenY) {
     if (!world) return;
-
-    // Convert screen position to world position before zoom
     const worldX = cameraX + screenX / cameraZoom;
     const worldY = cameraY + screenY / cameraZoom;
-
-    const oldZoom = cameraZoom;
     if (!zoomCamera(delta)) return;
-
-    // Adjust camera so the world position stays under the mouse
     cameraX = worldX - screenX / cameraZoom;
     cameraY = worldY - screenY / cameraZoom;
     clampCamera();
   }
 
-  // Convert screen coordinates to world coordinates
   function screenToWorld(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
     const scaleFactorX = canvas.width / rect.width;
     const scaleFactorY = canvas.height / rect.height;
     const canvasX = (clientX - rect.left) * scaleFactorX;
     const canvasY = (clientY - rect.top) * scaleFactorY;
-    const worldX = cameraX + canvasX / cameraZoom;
-    const worldY = cameraY + canvasY / cameraZoom;
-    return { x: worldX, y: worldY };
+    return {
+      x: cameraX + canvasX / cameraZoom,
+      y: cameraY + canvasY / cameraZoom
+    };
   }
 
-  // Handle unit selection on left click
-  function handleUnitSelection(clientX, clientY) {
-    const worldPos = screenToWorld(clientX, clientY);
-    const actors = world.getAllActors();
-
-    // Find the unit closest to the click (within selection radius)
-    let closestUnit = null;
-    let closestDist = Infinity;
-
-    for (const actor of actors) {
-      const dx = actor.x - worldPos.x;
-      const dy = actor.y - worldPos.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist <= UNIT_RADIUS * 1.5 && dist < closestDist) {
-        closestDist = dist;
-        closestUnit = actor;
-      }
-    }
-
-    if (closestUnit) {
-      // Toggle selection if clicking the same unit
-      if (selectedUnit && selectedUnit.id === closestUnit.id) {
-        deselectUnit();
-      } else {
-        selectUnit(closestUnit);
-      }
-    } else {
-      // Clicked on empty space - deselect
-      deselectUnit();
-    }
-  }
-
-  // Select a unit
-  function selectUnit(unit) {
-    selectedUnit = unit;
-    updateUnitInfoPanel();
-  }
-
-  // Deselect the current unit
-  function deselectUnit() {
-    selectedUnit = null;
-    updateUnitInfoPanel();
-  }
-
-  // Update the unit info panel display
-  function updateUnitInfoPanel() {
-    const panel = document.getElementById('unit-info-panel');
-    if (!panel) return;
-
-    // Verify selected unit still exists in world
-    if (selectedUnit && world) {
-      const currentUnit = world.getActor(selectedUnit.id);
-      if (!currentUnit) {
-        // Unit was removed from world
-        selectedUnit = null;
-      } else {
-        // Update reference in case world was replaced
-        selectedUnit = currentUnit;
-      }
-    }
-
-    if (selectedUnit) {
-      panel.classList.remove('hidden');
-      document.getElementById('unit-id').textContent = selectedUnit.id;
-      document.getElementById('unit-x').textContent = Math.round(selectedUnit.x);
-      document.getElementById('unit-y').textContent = Math.round(selectedUnit.y);
-      document.getElementById('unit-sprite').textContent = selectedUnit.sprite || 'default';
-    } else {
-      panel.classList.add('hidden');
-    }
-  }
-
-  // Handle move command on right click
-  function handleMoveCommand(clientX, clientY) {
-    if (!selectedUnit) return;
-
-    const worldPos = screenToWorld(clientX, clientY);
-
-    // Set the move target for this unit
-    unitMoveTargets.set(selectedUnit.id, {
-      x: worldPos.x,
-      y: worldPos.y
-    });
-  }
-
-  // Clamp camera to world boundaries
   function clampCamera() {
     if (!world) return;
-
     const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
     const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
     const viewWidth = canvas.width / cameraZoom;
     const viewHeight = canvas.height / cameraZoom;
-
-    // Allow some padding beyond the map edges
     const padding = 100;
-    const minX = -padding;
-    const minY = -padding;
-    const maxX = worldPixelWidth - viewWidth + padding;
-    const maxY = worldPixelHeight - viewHeight + padding;
-
-    cameraX = Math.max(minX, Math.min(maxX, cameraX));
-    cameraY = Math.max(minY, Math.min(maxY, cameraY));
+    cameraX = Math.max(-padding, Math.min(worldPixelWidth - viewWidth + padding, cameraX));
+    cameraY = Math.max(-padding, Math.min(worldPixelHeight - viewHeight + padding, cameraY));
   }
 });
