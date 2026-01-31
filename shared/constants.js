@@ -13,7 +13,14 @@ const CONSTANTS = {
   MAP_WIDTH: 100,   // tiles
   MAP_HEIGHT: 100,  // tiles
   TILE_WIDTH: 32,   // pixels
-  TILE_HEIGHT: 32   // pixels
+  TILE_HEIGHT: 32,  // pixels
+
+  // Camera settings
+  CAMERA_PAN_SPEED: 500,      // pixels per second
+  CAMERA_ZOOM_MIN: 0.5,
+  CAMERA_ZOOM_MAX: 2.0,
+  CAMERA_ZOOM_SPEED: 0.1,     // zoom change per scroll tick
+  CAMERA_EDGE_SCROLL_SIZE: 30 // pixels from edge to trigger scroll
 };
 
 // Export for both Node.js and browser

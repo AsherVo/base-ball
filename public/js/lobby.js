@@ -9,6 +9,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const setNameBtn = document.getElementById('set-name-btn');
   const displayName = document.getElementById('display-name');
 
+  // Auto-populate with random name for faster testing
+  const randomNames = ['Ashley', 'Bailey', 'Cathy', 'Denmark', 'Elana', 'Frank', 'Gabby', 'Hilda', 'Iris', 'Janet', 'Karen', 'Linda', 'Monica', 'Ophelia', 'Penelope', 'Quinn', 'Rosie', 'Sandra', 'Tamar', 'Uma', 'Veronica', 'Wanda', 'Xia', 'Y', 'Zelda'];
+  playerNameInput.value = randomNames[Math.floor(Math.random() * randomNames.length)];
+
   const createRoomBtn = document.getElementById('create-room-btn');
   const roomIdInput = document.getElementById('room-id-input');
   const joinRoomBtn = document.getElementById('join-room-btn');
@@ -167,6 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
     roomStatus.textContent = 'Both players here! Click Ready when you want to start.';
     readyBtn.classList.remove('hidden');
     showStatus('Click Ready when you want to start!');
+    // Auto-ready for faster testing
+    network.playerReady();
   });
 
   network.on('readyUpdate', (data) => {

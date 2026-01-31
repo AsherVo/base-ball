@@ -37,11 +37,22 @@ This project is solidly in a "prototype" state.
 - Actor rendering (placeholder circle sprites)
 - Serialization/deserialization for network transmission
 
+### Camera Controls (Complete)
+- Pan with WASD or arrow keys (smooth, frame-rate independent)
+- Pan with right-click or middle-click drag
+- Zoom with mouse scroll wheel (zooms toward cursor position)
+- Zoom with +/- keys
+- Zoom range: 50% to 200%
+- Camera clamped to map boundaries with padding
+- MacBook trackpad support: two-finger scroll to pan, pinch to zoom
+- Auto-detection of trackpad vs mouse input
+- On-screen controls hint
+
 ## What's Missing
 
 ### Game Mechanics (Not Started)
 - No game rules or win conditions
-- No player input handling
+- No gameplay input handling (unit selection, commands)
 - No physics or collision detection
 - Only a single test actor exists
 
@@ -59,4 +70,4 @@ This project is solidly in a "prototype" state.
 
 ## Summary
 
-The project has a fully functional lobby and matchmaking system. The networking layer is ready for game events. The actual game logic needs to be implemented - currently the game page displays a blank canvas with a player list.
+The project has a fully functional lobby and matchmaking system. The networking layer is ready for game events. The game client renders a tile-based world with camera controls (pan and zoom). The actual gameplay mechanics need to be implemented - currently there are no units, buildings, or game rules.

@@ -21,6 +21,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // Camera/viewport position (top-left corner in world pixels)
   let cameraX = 0;
   let cameraY = 0;
+  let cameraZoom = 1.0;
+
+  // Input state
+  const keysPressed = new Set();
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let dragCameraStartX = 0;
+  let dragCameraStartY = 0;
+  let lastFrameTime = 0;
 
   // Initialize
   if (!roomId || !playerName) {
@@ -75,8 +85,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   network.on('disconnected', () => {
-    gameStatus.textContent = 'Disconnected';
+    gameStatus.textContent = 'Disconnected - returning to lobby...';
     gameRunning = false;
+    sessionStorage.removeItem('roomId');
+    setTimeout(() => {
+      window.location.href = '/';
+    }, 1000);
   });
 
   // Leave button
@@ -84,6 +98,101 @@ document.addEventListener('DOMContentLoaded', () => {
     network.leaveRoom();
     sessionStorage.removeItem('roomId');
     window.location.href = '/';
+  });
+
+  // Camera controls - Keyboard
+  window.addEventListener('keydown', (e) => {
+    keysPressed.add(e.key.toLowerCase());
+
+    // Handle zoom with +/- keys
+    if (e.key === '=' || e.key === '+') {
+      zoomCamera(CONSTANTS.CAMERA_ZOOM_SPEED);
+    } else if (e.key === '-' || e.key === '_') {
+      zoomCamera(-CONSTANTS.CAMERA_ZOOM_SPEED);
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    keysPressed.delete(e.key.toLowerCase());
+  });
+
+  // Camera controls - Mouse wheel / trackpad
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    if (e.ctrlKey) {
+      // Pinch-to-zoom gesture (macOS trackpad sends ctrlKey + wheel for pinch)
+      // Use smaller zoom speed for smoother pinch control
+      const zoomDelta = e.deltaY > 0 ? -CONSTANTS.CAMERA_ZOOM_SPEED * 0.5 : CONSTANTS.CAMERA_ZOOM_SPEED * 0.5;
+      zoomCameraAt(zoomDelta, mouseX, mouseY);
+    } else if (isTrackpadScroll(e)) {
+      // Trackpad two-finger scroll → pan
+      cameraX += e.deltaX / cameraZoom;
+      cameraY += e.deltaY / cameraZoom;
+      clampCamera();
+    } else {
+      // Mouse wheel → zoom
+      const zoomDelta = e.deltaY > 0 ? -CONSTANTS.CAMERA_ZOOM_SPEED : CONSTANTS.CAMERA_ZOOM_SPEED;
+      zoomCameraAt(zoomDelta, mouseX, mouseY);
+    }
+  }, { passive: false });
+
+  // Detect if wheel event is from trackpad vs mouse
+  function isTrackpadScroll(e) {
+    // deltaMode 0 = pixels (trackpad), 1 = lines, 2 = pages (mouse)
+    if (e.deltaMode !== 0) return false;
+
+    // Trackpads often have horizontal scroll component
+    if (Math.abs(e.deltaX) > 0) return true;
+
+    // Mouse wheels typically report discrete values (multiples of ~100-120)
+    // Trackpads report smaller, more precise values
+    const dominated = Math.abs(e.deltaY);
+    if (dominated > 0 && dominated < 50) return true;
+
+    // Check for non-integer values (common with trackpads)
+    if (e.deltaY % 1 !== 0) return true;
+
+    return false;
+  }
+
+  // Camera controls - Mouse drag pan
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1 || e.button === 2) { // Middle or right click
+      e.preventDefault();
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragCameraStartX = cameraX;
+      dragCameraStartY = cameraY;
+      canvas.style.cursor = 'grabbing';
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (isDragging) {
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      cameraX = dragCameraStartX - dx / cameraZoom;
+      cameraY = dragCameraStartY - dy / cameraZoom;
+      clampCamera();
+    }
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 1 || e.button === 2) {
+      isDragging = false;
+      canvas.style.cursor = 'default';
+    }
+  });
+
+  // Disable context menu on canvas for right-click drag
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
   });
 
   // Update players list UI
@@ -117,10 +226,34 @@ document.addEventListener('DOMContentLoaded', () => {
     requestAnimationFrame(gameLoop);
   }
 
-  // Update game state (placeholder)
+  // Update game state
   function update() {
-    // TODO: Game logic goes here
-    // - Process input
+    const currentTime = performance.now();
+    const deltaTime = lastFrameTime ? (currentTime - lastFrameTime) / 1000 : 0;
+    lastFrameTime = currentTime;
+
+    // Handle keyboard camera panning
+    if (world) {
+      const panSpeed = CONSTANTS.CAMERA_PAN_SPEED / cameraZoom;
+      const panAmount = panSpeed * deltaTime;
+
+      if (keysPressed.has('w') || keysPressed.has('arrowup')) {
+        cameraY -= panAmount;
+      }
+      if (keysPressed.has('s') || keysPressed.has('arrowdown')) {
+        cameraY += panAmount;
+      }
+      if (keysPressed.has('a') || keysPressed.has('arrowleft')) {
+        cameraX -= panAmount;
+      }
+      if (keysPressed.has('d') || keysPressed.has('arrowright')) {
+        cameraX += panAmount;
+      }
+
+      clampCamera();
+    }
+
+    // TODO: Additional game logic
     // - Update positions
     // - Handle collisions
     // - Sync with server
@@ -154,35 +287,44 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.fillStyle = '#ffffff';
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`Room: ${roomId} | Players: ${players.length}`, 10, 20);
+    ctx.fillText(`Room: ${roomId} | Players: ${players.length} | Zoom: ${Math.round(cameraZoom * 100)}%`, 10, 20);
+
+    // Draw controls hint
+    ctx.fillStyle = '#888888';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('WASD/Arrows: Pan | Mouse wheel/+/-: Zoom | Right-drag: Pan | Trackpad: Scroll to pan, Pinch to zoom', 10, canvas.height - 10);
   }
 
   // Draw the map grid
   function drawMap() {
     const tileW = CONSTANTS.TILE_WIDTH;
     const tileH = CONSTANTS.TILE_HEIGHT;
+    const scaledTileW = tileW * cameraZoom;
+    const scaledTileH = tileH * cameraZoom;
 
-    // Calculate visible tile range
+    // Calculate visible tile range (accounting for zoom)
+    const viewWidth = canvas.width / cameraZoom;
+    const viewHeight = canvas.height / cameraZoom;
     const startTileX = Math.floor(cameraX / tileW);
     const startTileY = Math.floor(cameraY / tileH);
-    const endTileX = Math.ceil((cameraX + canvas.width) / tileW);
-    const endTileY = Math.ceil((cameraY + canvas.height) / tileH);
+    const endTileX = Math.ceil((cameraX + viewWidth) / tileW);
+    const endTileY = Math.ceil((cameraY + viewHeight) / tileH);
 
     // Draw visible tiles
     for (let ty = startTileY; ty <= endTileY && ty < world.height; ty++) {
       for (let tx = startTileX; tx <= endTileX && tx < world.width; tx++) {
         if (tx < 0 || ty < 0) continue;
 
-        const screenX = tx * tileW - cameraX;
-        const screenY = ty * tileH - cameraY;
+        const screenX = (tx * tileW - cameraX) * cameraZoom;
+        const screenY = (ty * tileH - cameraY) * cameraZoom;
 
         // Alternate colors for checkerboard pattern
         ctx.fillStyle = (tx + ty) % 2 === 0 ? '#2a2a4e' : '#252545';
-        ctx.fillRect(screenX, screenY, tileW, tileH);
+        ctx.fillRect(screenX, screenY, scaledTileW, scaledTileH);
 
         // Draw grid lines
         ctx.strokeStyle = '#3a3a5e';
-        ctx.strokeRect(screenX, screenY, tileW, tileH);
+        ctx.strokeRect(screenX, screenY, scaledTileW, scaledTileH);
       }
     }
   }
@@ -197,24 +339,70 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Draw a single actor
   function drawActor(actor) {
-    const screenX = actor.x - cameraX;
-    const screenY = actor.y - cameraY;
+    const screenX = (actor.x - cameraX) * cameraZoom;
+    const screenY = (actor.y - cameraY) * cameraZoom;
+    const radius = 16 * cameraZoom;
 
     // Skip if off-screen
-    if (screenX < -32 || screenX > canvas.width + 32 ||
-        screenY < -32 || screenY > canvas.height + 32) {
+    if (screenX < -radius || screenX > canvas.width + radius ||
+        screenY < -radius || screenY > canvas.height + radius) {
       return;
     }
 
     // Draw actor as a circle (placeholder sprite)
     ctx.fillStyle = '#ff6b6b';
     ctx.beginPath();
-    ctx.arc(screenX, screenY, 16, 0, Math.PI * 2);
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
     ctx.fill();
 
     // Draw outline
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * cameraZoom;
     ctx.stroke();
+  }
+
+  // Zoom camera by delta amount
+  function zoomCamera(delta) {
+    const oldZoom = cameraZoom;
+    cameraZoom = Math.max(CONSTANTS.CAMERA_ZOOM_MIN,
+                          Math.min(CONSTANTS.CAMERA_ZOOM_MAX, cameraZoom + delta));
+    return oldZoom !== cameraZoom;
+  }
+
+  // Zoom camera toward a specific screen position
+  function zoomCameraAt(delta, screenX, screenY) {
+    if (!world) return;
+
+    // Convert screen position to world position before zoom
+    const worldX = cameraX + screenX / cameraZoom;
+    const worldY = cameraY + screenY / cameraZoom;
+
+    const oldZoom = cameraZoom;
+    if (!zoomCamera(delta)) return;
+
+    // Adjust camera so the world position stays under the mouse
+    cameraX = worldX - screenX / cameraZoom;
+    cameraY = worldY - screenY / cameraZoom;
+    clampCamera();
+  }
+
+  // Clamp camera to world boundaries
+  function clampCamera() {
+    if (!world) return;
+
+    const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+    const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+    const viewWidth = canvas.width / cameraZoom;
+    const viewHeight = canvas.height / cameraZoom;
+
+    // Allow some padding beyond the map edges
+    const padding = 100;
+    const minX = -padding;
+    const minY = -padding;
+    const maxX = worldPixelWidth - viewWidth + padding;
+    const maxY = worldPixelHeight - viewHeight + padding;
+
+    cameraX = Math.max(minX, Math.min(maxX, cameraX));
+    cameraY = Math.max(minY, Math.min(maxY, cameraY));
   }
 });
