@@ -23,6 +23,22 @@
       <ul id="players-list"></ul>
       <div id="game-status">Connected</div>
     </aside>
+
+    <div id="unit-info-panel" class="unit-info-panel hidden">
+      <h3>Unit Info</h3>
+      <div class="unit-stat">
+        <span class="stat-label">ID:</span>
+        <span id="unit-id" class="stat-value">-</span>
+      </div>
+      <div class="unit-stat">
+        <span class="stat-label">Position:</span>
+        <span class="stat-value">(<span id="unit-x">-</span>, <span id="unit-y">-</span>)</span>
+      </div>
+      <div class="unit-stat">
+        <span class="stat-label">Type:</span>
+        <span id="unit-sprite" class="stat-value">-</span>
+      </div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>

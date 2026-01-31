@@ -33,6 +33,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastFrameTime = 0;
   let isMinimapDragging = false;
 
+  // Unit selection state
+  let selectedUnit = null;
+  const UNIT_RADIUS = 16; // Collision radius for selection
+
+  // Unit movement targets (actorId -> {x, y})
+  const unitMoveTargets = new Map();
+
   // Initialize
   if (!roomId || !playerName) {
     window.location.href = '/';
@@ -77,6 +84,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
     cameraX = (worldPixelWidth - canvas.width) / 2;
     cameraY = (worldPixelHeight - canvas.height) / 2;
+    // Clear any selection state
+    selectedUnit = null;
+    unitMoveTargets.clear();
+    updateUnitInfoPanel();
     gameStatus.textContent = 'Game started!';
     console.log('World received:', world);
   });
@@ -110,6 +121,11 @@ document.addEventListener('DOMContentLoaded', () => {
       zoomCamera(CONSTANTS.CAMERA_ZOOM_SPEED);
     } else if (e.key === '-' || e.key === '_') {
       zoomCamera(-CONSTANTS.CAMERA_ZOOM_SPEED);
+    }
+
+    // Escape key deselects unit
+    if (e.key === 'Escape') {
+      deselectUnit();
     }
   });
 
@@ -161,9 +177,13 @@ document.addEventListener('DOMContentLoaded', () => {
     return false;
   }
 
-  // Camera controls - Mouse drag pan
+  // Camera controls - Mouse drag pan (middle click) or move command (right click)
+  let rightClickStartX = 0;
+  let rightClickStartY = 0;
+  let isRightClickDrag = false;
+
   canvas.addEventListener('mousedown', (e) => {
-    if (e.button === 1 || e.button === 2) { // Middle or right click
+    if (e.button === 1) { // Middle click - always pan
       e.preventDefault();
       isDragging = true;
       dragStartX = e.clientX;
@@ -171,6 +191,18 @@ document.addEventListener('DOMContentLoaded', () => {
       dragCameraStartX = cameraX;
       dragCameraStartY = cameraY;
       canvas.style.cursor = 'grabbing';
+    } else if (e.button === 2) { // Right click - could be move command or pan
+      e.preventDefault();
+      rightClickStartX = e.clientX;
+      rightClickStartY = e.clientY;
+      isRightClickDrag = false;
+
+      // Start potential drag
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      dragCameraStartX = cameraX;
+      dragCameraStartY = cameraY;
     }
   });
 
@@ -178,18 +210,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (isDragging) {
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
-      cameraX = dragCameraStartX - dx / cameraZoom;
-      cameraY = dragCameraStartY - dy / cameraZoom;
-      clampCamera();
+
+      // Check if this is a significant drag (more than 5 pixels)
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        isRightClickDrag = true;
+        canvas.style.cursor = 'grabbing';
+      }
+
+      // Only actually pan if we've determined this is a drag
+      if (isRightClickDrag) {
+        cameraX = dragCameraStartX - dx / cameraZoom;
+        cameraY = dragCameraStartY - dy / cameraZoom;
+        clampCamera();
+      }
     } else if (isMinimapDragging) {
       handleMinimapNavigation(e.clientX, e.clientY);
     }
   });
 
   window.addEventListener('mouseup', (e) => {
-    if (e.button === 1 || e.button === 2) {
+    if (e.button === 1) { // Middle click
       isDragging = false;
       canvas.style.cursor = 'default';
+    } else if (e.button === 2) { // Right click
+      isDragging = false;
+      canvas.style.cursor = 'default';
+
+      // If this wasn't a drag and we have a selected unit, issue move command
+      if (!isRightClickDrag && selectedUnit && world) {
+        handleMoveCommand(e.clientX, e.clientY);
+      }
     }
     if (e.button === 0 && isMinimapDragging) {
       isMinimapDragging = false;
@@ -245,12 +295,19 @@ document.addEventListener('DOMContentLoaded', () => {
     return false;
   }
 
-  // Minimap click/drag to navigate
+  // Left click: minimap navigation or unit selection
   canvas.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // Left click
+      // First check if clicking on minimap
       if (handleMinimapNavigation(e.clientX, e.clientY)) {
         isMinimapDragging = true;
         canvas.style.cursor = 'crosshair';
+        return;
+      }
+
+      // Otherwise, handle unit selection
+      if (world) {
+        handleUnitSelection(e.clientX, e.clientY);
       }
     }
   });
@@ -313,10 +370,45 @@ document.addEventListener('DOMContentLoaded', () => {
       clampCamera();
     }
 
-    // TODO: Additional game logic
-    // - Update positions
-    // - Handle collisions
-    // - Sync with server
+    // Update unit positions (move toward targets)
+    if (world) {
+      updateUnitMovement(deltaTime);
+    }
+  }
+
+  // Update unit movement toward targets
+  function updateUnitMovement(deltaTime) {
+    const MOVE_SPEED = 150; // pixels per second
+
+    for (const [actorId, target] of unitMoveTargets.entries()) {
+      const actor = world.getActor(actorId);
+      if (!actor) {
+        unitMoveTargets.delete(actorId);
+        continue;
+      }
+
+      const dx = target.x - actor.x;
+      const dy = target.y - actor.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < 2) {
+        // Arrived at target
+        actor.x = target.x;
+        actor.y = target.y;
+        unitMoveTargets.delete(actorId);
+      } else {
+        // Move toward target
+        const moveAmount = MOVE_SPEED * deltaTime;
+        const ratio = Math.min(moveAmount / dist, 1);
+        actor.x += dx * ratio;
+        actor.y += dy * ratio;
+      }
+    }
+
+    // Update unit info panel if selected unit moved
+    if (selectedUnit) {
+      updateUnitInfoPanel();
+    }
   }
 
   // Render game
@@ -352,7 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Draw controls hint
     ctx.fillStyle = '#888888';
     ctx.font = '12px sans-serif';
-    ctx.fillText('WASD/Arrows: Pan | Mouse wheel/+/-: Zoom | Right-drag: Pan | Trackpad: Scroll to pan, Pinch to zoom', 10, canvas.height - 10);
+    ctx.fillText('Left-click: Select unit | Right-click: Move | Escape: Deselect | WASD: Pan | Wheel: Zoom', 10, canvas.height - 10);
 
     // Draw minimap
     drawMinimap();
@@ -400,16 +492,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Draw a single actor
+  // Draw a single actor (unit)
   function drawActor(actor) {
     const screenX = (actor.x - cameraX) * cameraZoom;
     const screenY = (actor.y - cameraY) * cameraZoom;
-    const radius = 16 * cameraZoom;
+    const radius = UNIT_RADIUS * cameraZoom;
 
     // Skip if off-screen
-    if (screenX < -radius || screenX > canvas.width + radius ||
-        screenY < -radius || screenY > canvas.height + radius) {
+    if (screenX < -radius * 2 || screenX > canvas.width + radius * 2 ||
+        screenY < -radius * 2 || screenY > canvas.height + radius * 2) {
       return;
+    }
+
+    const isSelected = selectedUnit && selectedUnit.id === actor.id;
+
+    // Draw selection indicator (ring behind the unit)
+    if (isSelected) {
+      ctx.strokeStyle = '#4aff4a';
+      ctx.lineWidth = 3 * cameraZoom;
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius + 6 * cameraZoom, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Draw pulsing glow effect
+      const pulse = Math.sin(performance.now() / 200) * 0.3 + 0.5;
+      ctx.strokeStyle = `rgba(74, 255, 74, ${pulse})`;
+      ctx.lineWidth = 2 * cameraZoom;
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius + 10 * cameraZoom, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
     // Draw actor as a circle (placeholder sprite)
@@ -419,8 +530,43 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.fill();
 
     // Draw outline
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = isSelected ? '#4aff4a' : '#ffffff';
     ctx.lineWidth = 2 * cameraZoom;
+    ctx.stroke();
+
+    // Draw move target indicator if this unit has one
+    const target = unitMoveTargets.get(actor.id);
+    if (target) {
+      drawMoveTarget(actor, target);
+    }
+  }
+
+  // Draw move target indicator
+  function drawMoveTarget(actor, target) {
+    const targetScreenX = (target.x - cameraX) * cameraZoom;
+    const targetScreenY = (target.y - cameraY) * cameraZoom;
+    const actorScreenX = (actor.x - cameraX) * cameraZoom;
+    const actorScreenY = (actor.y - cameraY) * cameraZoom;
+
+    // Draw line from actor to target
+    ctx.strokeStyle = 'rgba(74, 255, 74, 0.5)';
+    ctx.lineWidth = 2 * cameraZoom;
+    ctx.setLineDash([5 * cameraZoom, 5 * cameraZoom]);
+    ctx.beginPath();
+    ctx.moveTo(actorScreenX, actorScreenY);
+    ctx.lineTo(targetScreenX, targetScreenY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw target marker (X)
+    const markerSize = 8 * cameraZoom;
+    ctx.strokeStyle = '#4aff4a';
+    ctx.lineWidth = 2 * cameraZoom;
+    ctx.beginPath();
+    ctx.moveTo(targetScreenX - markerSize, targetScreenY - markerSize);
+    ctx.lineTo(targetScreenX + markerSize, targetScreenY + markerSize);
+    ctx.moveTo(targetScreenX + markerSize, targetScreenY - markerSize);
+    ctx.lineTo(targetScreenX - markerSize, targetScreenY + markerSize);
     ctx.stroke();
   }
 
@@ -511,6 +657,104 @@ document.addEventListener('DOMContentLoaded', () => {
     cameraX = worldX - screenX / cameraZoom;
     cameraY = worldY - screenY / cameraZoom;
     clampCamera();
+  }
+
+  // Convert screen coordinates to world coordinates
+  function screenToWorld(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleFactorX = canvas.width / rect.width;
+    const scaleFactorY = canvas.height / rect.height;
+    const canvasX = (clientX - rect.left) * scaleFactorX;
+    const canvasY = (clientY - rect.top) * scaleFactorY;
+    const worldX = cameraX + canvasX / cameraZoom;
+    const worldY = cameraY + canvasY / cameraZoom;
+    return { x: worldX, y: worldY };
+  }
+
+  // Handle unit selection on left click
+  function handleUnitSelection(clientX, clientY) {
+    const worldPos = screenToWorld(clientX, clientY);
+    const actors = world.getAllActors();
+
+    // Find the unit closest to the click (within selection radius)
+    let closestUnit = null;
+    let closestDist = Infinity;
+
+    for (const actor of actors) {
+      const dx = actor.x - worldPos.x;
+      const dy = actor.y - worldPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist <= UNIT_RADIUS * 1.5 && dist < closestDist) {
+        closestDist = dist;
+        closestUnit = actor;
+      }
+    }
+
+    if (closestUnit) {
+      // Toggle selection if clicking the same unit
+      if (selectedUnit && selectedUnit.id === closestUnit.id) {
+        deselectUnit();
+      } else {
+        selectUnit(closestUnit);
+      }
+    } else {
+      // Clicked on empty space - deselect
+      deselectUnit();
+    }
+  }
+
+  // Select a unit
+  function selectUnit(unit) {
+    selectedUnit = unit;
+    updateUnitInfoPanel();
+  }
+
+  // Deselect the current unit
+  function deselectUnit() {
+    selectedUnit = null;
+    updateUnitInfoPanel();
+  }
+
+  // Update the unit info panel display
+  function updateUnitInfoPanel() {
+    const panel = document.getElementById('unit-info-panel');
+    if (!panel) return;
+
+    // Verify selected unit still exists in world
+    if (selectedUnit && world) {
+      const currentUnit = world.getActor(selectedUnit.id);
+      if (!currentUnit) {
+        // Unit was removed from world
+        selectedUnit = null;
+      } else {
+        // Update reference in case world was replaced
+        selectedUnit = currentUnit;
+      }
+    }
+
+    if (selectedUnit) {
+      panel.classList.remove('hidden');
+      document.getElementById('unit-id').textContent = selectedUnit.id;
+      document.getElementById('unit-x').textContent = Math.round(selectedUnit.x);
+      document.getElementById('unit-y').textContent = Math.round(selectedUnit.y);
+      document.getElementById('unit-sprite').textContent = selectedUnit.sprite || 'default';
+    } else {
+      panel.classList.add('hidden');
+    }
+  }
+
+  // Handle move command on right click
+  function handleMoveCommand(clientX, clientY) {
+    if (!selectedUnit) return;
+
+    const worldPos = screenToWorld(clientX, clientY);
+
+    // Set the move target for this unit
+    unitMoveTargets.set(selectedUnit.id, {
+      x: worldPos.x,
+      y: worldPos.y
+    });
   }
 
   // Clamp camera to world boundaries

@@ -39,7 +39,7 @@ This project is solidly in a "prototype" state.
 
 ### Camera Controls (Complete)
 - Pan with WASD or arrow keys (smooth, frame-rate independent)
-- Pan with right-click or middle-click drag
+- Pan with middle-click drag
 - Zoom with mouse scroll wheel (zooms toward cursor position)
 - Zoom with +/- keys
 - Zoom range: 50% to 200%
@@ -49,13 +49,21 @@ This project is solidly in a "prototype" state.
 - On-screen controls hint
 - Minimap in lower-left corner showing map overview and camera viewport
 
+### Unit Selection (Complete)
+- Left-click on unit to select it (green selection indicator with pulsing glow)
+- Unit info panel appears in bottom-right corner showing ID, position, and type
+- Click on blank space or press Escape to deselect
+- Right-click to issue move commands (unit moves to clicked position)
+- Move target indicator shows destination with dashed line path
+- Smooth unit movement (150 pixels/second)
+
 ## What's Missing
 
-### Game Mechanics (Not Started)
+### Game Mechanics (Partial)
 - No game rules or win conditions
-- No gameplay input handling (unit selection, commands)
 - No physics or collision detection
 - Only a single test actor exists
+- Unit movement is client-side only (not synced with server)
 
 ### Game State Synchronization (Partial)
 - Server creates initial world state
@@ -71,4 +79,4 @@ This project is solidly in a "prototype" state.
 
 ## Summary
 
-The project has a fully functional lobby and matchmaking system. The networking layer is ready for game events. The game client renders a tile-based world with camera controls (pan and zoom). The actual gameplay mechanics need to be implemented - currently there are no units, buildings, or game rules.
+The project has a fully functional lobby and matchmaking system. The networking layer is ready for game events. The game client renders a tile-based world with camera controls (pan and zoom) and unit selection/movement. Unit selection allows clicking on actors (units) to see their info and issuing move commands via right-click. Movement is currently client-side only. The next steps are server-side movement synchronization, game rules, and win conditions.
