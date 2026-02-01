@@ -3,6 +3,7 @@ const CommandTypes = {
   MOVE: 'MOVE',
   ATTACK: 'ATTACK',
   BUILD: 'BUILD',
+  ASSIST_BUILD: 'ASSIST_BUILD',
   GATHER: 'GATHER',
   PUSH_BALL: 'PUSH_BALL',
   TRAIN: 'TRAIN',
@@ -41,6 +42,13 @@ const Commands = {
       buildingType,
       x,
       y
+    });
+  },
+
+  assistBuild(workerIds, buildingId) {
+    return createCommand(CommandTypes.ASSIST_BUILD, {
+      workerIds: Array.isArray(workerIds) ? workerIds : [workerIds],
+      buildingId
     });
   },
 

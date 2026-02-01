@@ -463,6 +463,15 @@ document.addEventListener('DOMContentLoaded', () => {
     network.sendCommand(Commands.build(workerId, buildingType, x, y));
   }
 
+  function sendAssistBuildCommand(buildingId) {
+    const myWorkerIds = selectedActors
+      .filter(a => a.ownerId === myPlayerId && a.subtype === 'worker')
+      .map(a => a.id);
+    if (myWorkerIds.length > 0) {
+      network.sendCommand(Commands.assistBuild(myWorkerIds, buildingId));
+    }
+  }
+
   function sendTrainCommand(buildingId, unitType) {
     network.sendCommand(Commands.train(buildingId, unitType));
   }
@@ -530,6 +539,9 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (clickedActor.ownerId && clickedActor.ownerId !== myPlayerId) {
         // Right-click on enemy: attack
         sendAttackCommand(clickedActor.id);
+      } else if (clickedActor.type === 'building' && clickedActor.ownerId === myPlayerId && clickedActor.state === 'constructing') {
+        // Right-click on own building under construction: assist build
+        sendAssistBuildCommand(clickedActor.id);
       } else {
         // Right-click on friendly/neutral: move
         sendMoveCommand(worldPos.x, worldPos.y);

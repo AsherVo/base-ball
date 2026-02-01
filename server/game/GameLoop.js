@@ -100,6 +100,9 @@ class GameLoop {
       case CommandTypes.BUILD:
         this.executeBuildCommand(playerId, command);
         break;
+      case CommandTypes.ASSIST_BUILD:
+        this.executeAssistBuildCommand(playerId, command);
+        break;
       case CommandTypes.GATHER:
         this.executeGatherCommand(playerId, command);
         break;
@@ -186,6 +189,30 @@ class GameLoop {
     worker.targetY = y;
     worker.state = 'building';
     worker.gatherTargetId = null;
+  }
+
+  // Assist build command - send workers to help construct a building
+  executeAssistBuildCommand(playerId, command) {
+    const { workerIds, buildingId } = command;
+    const building = this.world.getActor(buildingId);
+
+    // Verify building exists, belongs to player, and is under construction
+    if (!building || building.ownerId !== playerId) return;
+    if (building.type !== 'building' || building.state !== 'constructing') return;
+
+    for (const workerId of workerIds) {
+      const worker = this.world.getActor(workerId);
+      if (!worker || worker.ownerId !== playerId) continue;
+      if (worker.subtype !== 'worker') continue;
+
+      // Assign worker to help build
+      worker.buildTargetId = buildingId;
+      worker.targetX = building.x;
+      worker.targetY = building.y;
+      worker.state = 'building';
+      worker.gatherTargetId = null;
+      worker.attackTargetId = null;
+    }
   }
 
   // Gather command - send workers to gather resources
