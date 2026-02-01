@@ -858,6 +858,22 @@ class GameLoop {
           const bounceFactor = other.type === 'building' ? 0.7 : 0.5;
           ball.velocityX = ((ball.velocityX || 0) - 2 * dotProduct * normalX) * bounceFactor;
           ball.velocityY = ((ball.velocityY || 0) - 2 * dotProduct * normalY) * bounceFactor;
+
+          // Deal 100 damage to actors hit by the ball
+          if (other.health != null) {
+            other.health -= 100;
+
+            // Emit attack event for visual feedback
+            this.io.to(this.roomId).emit('attackEvent', {
+              attackerId: ball.id,
+              targetId: other.id,
+              damage: 100
+            });
+
+            if (other.health <= 0) {
+              this.handleDeath(other);
+            }
+          }
         }
       }
     }

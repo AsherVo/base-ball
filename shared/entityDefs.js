@@ -5,7 +5,7 @@ const EntityDefs = {
       type: 'unit',
       subtype: 'worker',
       health: 50,
-      speed: 120,
+      speed: 100,
       attack: 5,
       attackRange: 30,
       attackSpeed: 1,
@@ -19,7 +19,7 @@ const EntityDefs = {
     soldier: {
       type: 'unit',
       subtype: 'soldier',
-      health: 100,
+      health: 80,
       speed: 100,
       attack: 15,
       attackRange: 50,

@@ -47,6 +47,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastPanelActorHealth = null;
   const UNIT_RADIUS = 16;
 
+  // Selection box state
+  let isSelectingBox = false;
+  let selectBoxStartX = 0;
+  let selectBoxStartY = 0;
+  let selectBoxEndX = 0;
+  let selectBoxEndY = 0;
+  let selectBoxShiftKey = false;
+
   // Build mode
   let buildMode = null; // null or building type string
   let buildGhostX = 0;
@@ -316,7 +324,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (world) {
-        handleLeftClick(e.clientX, e.clientY, e.shiftKey);
+        // Start potential selection box
+        const worldPos = screenToWorld(e.clientX, e.clientY);
+        selectBoxStartX = worldPos.x;
+        selectBoxStartY = worldPos.y;
+        selectBoxEndX = worldPos.x;
+        selectBoxEndY = worldPos.y;
+        selectBoxShiftKey = e.shiftKey;
+        isSelectingBox = true;
       }
     }
   });
@@ -327,6 +342,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const worldPos = screenToWorld(e.clientX, e.clientY);
       buildGhostX = worldPos.x;
       buildGhostY = worldPos.y;
+    }
+
+    // Update selection box
+    if (isSelectingBox && world) {
+      const worldPos = screenToWorld(e.clientX, e.clientY);
+      selectBoxEndX = worldPos.x;
+      selectBoxEndY = worldPos.y;
     }
 
     if (isDragging) {
@@ -361,6 +383,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.button === 0 && isMinimapDragging) {
       isMinimapDragging = false;
       canvas.style.cursor = 'default';
+    }
+    // Handle selection box completion
+    if (e.button === 0 && isSelectingBox && world) {
+      isSelectingBox = false;
+      const worldPos = screenToWorld(e.clientX, e.clientY);
+      selectBoxEndX = worldPos.x;
+      selectBoxEndY = worldPos.y;
+
+      // Check if this was a drag (box) or a click
+      const boxWidth = Math.abs(selectBoxEndX - selectBoxStartX);
+      const boxHeight = Math.abs(selectBoxEndY - selectBoxStartY);
+
+      if (boxWidth > 10 || boxHeight > 10) {
+        // Box selection
+        handleBoxSelection(selectBoxShiftKey);
+      } else {
+        // Single click selection
+        handleLeftClick(e.clientX, e.clientY, selectBoxShiftKey);
+      }
     }
   });
 
@@ -494,16 +535,89 @@ document.addEventListener('DOMContentLoaded', () => {
     let closestDist = Infinity;
 
     for (const actor of actors) {
-      const radius = actor.type === 'ball' ? actor.radius : UNIT_RADIUS;
+      // Use actual radius for ball, slightly expanded radius for small actors
+      const baseRadius = actor.radius || UNIT_RADIUS;
+      const clickRadius = actor.type === 'ball' ? baseRadius : baseRadius * 1.5;
       const dx = actor.x - worldX;
       const dy = actor.y - worldY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist <= radius * 1.5 && dist < closestDist) {
+      if (dist <= clickRadius && dist < closestDist) {
         closestDist = dist;
         closest = actor;
       }
     }
     return closest;
+  }
+
+  function handleBoxSelection(shiftKey) {
+    if (!world) return;
+
+    // Get box bounds
+    const minX = Math.min(selectBoxStartX, selectBoxEndX);
+    const maxX = Math.max(selectBoxStartX, selectBoxEndX);
+    const minY = Math.min(selectBoxStartY, selectBoxEndY);
+    const maxY = Math.max(selectBoxStartY, selectBoxEndY);
+
+    // Find all actors within the box
+    const actorsInBox = world.getAllActors().filter(actor => {
+      const radius = actor.radius || UNIT_RADIUS;
+      // Check if actor's bounding circle intersects the box
+      return actor.x + radius >= minX && actor.x - radius <= maxX &&
+             actor.y + radius >= minY && actor.y - radius <= maxY;
+    });
+
+    // Apply smart filtering
+    const filtered = filterSelectionByPriority(actorsInBox);
+
+    if (shiftKey) {
+      // Add to existing selection
+      for (const actor of filtered) {
+        if (!selectedActors.some(a => a.id === actor.id)) {
+          selectedActors.push(actor);
+        }
+      }
+    } else {
+      // Replace selection
+      selectedActors = filtered;
+    }
+
+    updateUnitInfoPanel(true);
+  }
+
+  function filterSelectionByPriority(actors) {
+    // Separate actors by category
+    const myUnits = actors.filter(a => a.ownerId === myPlayerId && a.type === 'unit');
+    const myBuildings = actors.filter(a => a.ownerId === myPlayerId && a.type === 'building');
+    const enemyActors = actors.filter(a => a.ownerId != null && a.ownerId !== myPlayerId);
+    const neutralActors = actors.filter(a => a.ownerId == null && a.type !== 'ball');
+    const ball = actors.find(a => a.type === 'ball');
+
+    // Priority 1: If we have my units, prefer them over everything else
+    if (myUnits.length > 0) {
+      return myUnits;
+    }
+
+    // Priority 2: If we have my buildings but no units, select buildings
+    if (myBuildings.length > 0) {
+      return myBuildings;
+    }
+
+    // Priority 3: If we have enemy actors, select them (for inspection)
+    if (enemyActors.length > 0) {
+      return enemyActors;
+    }
+
+    // Priority 4: Neutral actors (resources)
+    if (neutralActors.length > 0) {
+      return neutralActors;
+    }
+
+    // Priority 5: Ball
+    if (ball) {
+      return [ball];
+    }
+
+    return [];
   }
 
   // Build mode
@@ -769,6 +883,7 @@ document.addEventListener('DOMContentLoaded', () => {
     drawActors();
     drawAttackEffects();
     drawBuildGhost();
+    drawSelectionBox();
     drawUI();
     drawMinimap();
   }
@@ -1081,6 +1196,29 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.setLineDash([5 * cameraZoom, 5 * cameraZoom]);
     ctx.strokeRect(screenX - size/2, screenY - size/2, size, size);
     ctx.setLineDash([]);
+  }
+
+  function drawSelectionBox() {
+    if (!isSelectingBox) return;
+
+    // Check if the box is large enough to draw
+    const boxWidth = Math.abs(selectBoxEndX - selectBoxStartX);
+    const boxHeight = Math.abs(selectBoxEndY - selectBoxStartY);
+    if (boxWidth < 5 && boxHeight < 5) return;
+
+    const startScreenX = (Math.min(selectBoxStartX, selectBoxEndX) - cameraX) * cameraZoom;
+    const startScreenY = (Math.min(selectBoxStartY, selectBoxEndY) - cameraY) * cameraZoom;
+    const width = boxWidth * cameraZoom;
+    const height = boxHeight * cameraZoom;
+
+    // Draw selection box fill
+    ctx.fillStyle = 'rgba(74, 255, 74, 0.15)';
+    ctx.fillRect(startScreenX, startScreenY, width, height);
+
+    // Draw selection box border
+    ctx.strokeStyle = '#4aff4a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(startScreenX, startScreenY, width, height);
   }
 
   function drawUI() {
