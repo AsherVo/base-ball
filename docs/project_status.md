@@ -111,6 +111,15 @@ This project is now a functional RTS game prototype with all core mechanics impl
 - Ball entering goal ends game with victory for the scoring team
 - Game over overlay shows victory/defeat message
 
+### Collision System (Complete)
+- All actors have collision radii (units: 16-20px, buildings: 30-50px, ball: 120px)
+- Units cannot overlap with other units, buildings, or resources
+- Collision resolution pushes units apart when they attempt to occupy same space
+- Ball bounces off buildings with velocity reflection
+- Ball bounces off units (absorbs more energy than buildings)
+- Units walking into ball push it gently
+- Unit spawn positions validated to avoid overlapping with existing actors
+
 ## What's Missing
 
 ### Polish & Balance

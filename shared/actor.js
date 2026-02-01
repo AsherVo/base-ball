@@ -49,7 +49,9 @@ class Actor {
     // Ball-specific
     this.velocityX = 0;
     this.velocityY = 0;
-    this.radius = 30;
+
+    // Collision radius (used by all types)
+    this.radius = 16; // Default for units
   }
 
   // Apply stats from entity definition
@@ -80,7 +82,8 @@ class Actor {
       ownerId: this.ownerId,
       health: this.health,
       maxHealth: this.maxHealth,
-      state: this.state
+      state: this.state,
+      radius: this.radius
     };
 
     // Only include relevant fields based on type
@@ -107,7 +110,6 @@ class Actor {
     } else if (this.type === 'ball') {
       data.velocityX = this.velocityX;
       data.velocityY = this.velocityY;
-      data.radius = this.radius;
     }
 
     return data;
@@ -122,6 +124,7 @@ class Actor {
     actor.health = data.health ?? 100;
     actor.maxHealth = data.maxHealth ?? 100;
     actor.state = data.state || 'idle';
+    actor.radius = data.radius || 16;
 
     if (data.type === 'unit') {
       actor.attack = data.attack || 0;
@@ -138,7 +141,6 @@ class Actor {
     } else if (data.type === 'ball') {
       actor.velocityX = data.velocityX || 0;
       actor.velocityY = data.velocityY || 0;
-      actor.radius = data.radius || 30;
     }
 
     return actor;

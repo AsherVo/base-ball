@@ -12,6 +12,7 @@ const EntityDefs = {
       cost: 50,
       trainTime: 8,
       supply: 1,
+      radius: 16,
       canGather: true,
       canBuild: true
     },
@@ -25,7 +26,8 @@ const EntityDefs = {
       attackSpeed: 1.2,
       cost: 100,
       trainTime: 10,
-      supply: 2
+      supply: 2,
+      radius: 20
     }
   },
 
@@ -37,7 +39,8 @@ const EntityDefs = {
       cost: 0, // Starting building
       buildTime: 0,
       trains: ['worker'],
-      suppliesProvided: 10
+      suppliesProvided: 10,
+      radius: 50
     },
     barracks: {
       type: 'building',
@@ -46,7 +49,8 @@ const EntityDefs = {
       cost: 150,
       buildTime: 15,
       trains: ['soldier'],
-      suppliesProvided: 0
+      suppliesProvided: 0,
+      radius: 40
     },
     supplyDepot: {
       type: 'building',
@@ -55,7 +59,8 @@ const EntityDefs = {
       cost: 100,
       buildTime: 10,
       trains: [],
-      suppliesProvided: 8
+      suppliesProvided: 8,
+      radius: 30
     }
   },
 
@@ -64,7 +69,8 @@ const EntityDefs = {
       type: 'resource',
       subtype: 'minerals',
       amount: 1500,
-      gatherRate: 10 // minerals per second when gathering
+      gatherRate: 10, // minerals per second when gathering
+      radius: 40
     }
   },
 

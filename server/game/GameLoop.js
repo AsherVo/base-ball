@@ -361,8 +361,121 @@ class GameLoop {
     const speed = actor.speed || 100;
     const moveAmount = speed * deltaTime;
     const ratio = Math.min(moveAmount / dist, 1);
-    actor.x += dx * ratio;
-    actor.y += dy * ratio;
+
+    // Calculate new position
+    const newX = actor.x + dx * ratio;
+    const newY = actor.y + dy * ratio;
+
+    // Check for collisions and adjust position
+    const adjustedPos = this.resolveCollisions(actor, newX, newY);
+    actor.x = adjustedPos.x;
+    actor.y = adjustedPos.y;
+  }
+
+  // Check if two actors are colliding
+  checkCollision(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const minDist = (a.radius || 16) + (b.radius || 16);
+    return dist < minDist;
+  }
+
+  // Resolve collisions for a moving actor at new position
+  resolveCollisions(actor, newX, newY) {
+    const actorRadius = actor.radius || 16;
+    let finalX = newX;
+    let finalY = newY;
+
+    // Check collision with all other actors
+    for (const other of this.world.getAllActors()) {
+      if (other.id === actor.id) continue;
+
+      // Skip actors that don't need collision (e.g., the ball is handled separately)
+      if (other.type === 'ball') {
+        // Push ball if unit walks into it
+        this.handleUnitBallCollision(actor, other, finalX, finalY);
+        continue;
+      }
+
+      const otherRadius = other.radius || 16;
+      const minDist = actorRadius + otherRadius;
+
+      const dx = finalX - other.x;
+      const dy = finalY - other.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < minDist) {
+        // Collision detected - push actor out
+        const overlap = minDist - dist;
+
+        // Handle edge case where positions are exactly the same
+        let normalX, normalY;
+        if (dist < 0.001) {
+          // Push in a random direction when exactly overlapping
+          const angle = Math.random() * Math.PI * 2;
+          normalX = Math.cos(angle);
+          normalY = Math.sin(angle);
+        } else {
+          normalX = dx / dist;
+          normalY = dy / dist;
+        }
+
+        // For buildings and resources, push the moving actor fully out
+        if (other.type === 'building' || other.type === 'resource') {
+          finalX += normalX * (overlap + 0.1);
+          finalY += normalY * (overlap + 0.1);
+        } else if (other.type === 'unit') {
+          // For other units, push both apart equally
+          finalX += normalX * (overlap + 0.1) * 0.5;
+          finalY += normalY * (overlap + 0.1) * 0.5;
+        }
+      }
+    }
+
+    // Clamp to world bounds
+    const worldWidth = this.world.width * CONSTANTS.TILE_WIDTH;
+    const worldHeight = this.world.height * CONSTANTS.TILE_HEIGHT;
+    finalX = Math.max(actorRadius, Math.min(worldWidth - actorRadius, finalX));
+    finalY = Math.max(actorRadius, Math.min(worldHeight - actorRadius, finalY));
+
+    return { x: finalX, y: finalY };
+  }
+
+  // Handle collision between a unit and the ball
+  handleUnitBallCollision(actor, ball, unitX, unitY) {
+    const actorRadius = actor.radius || 16;
+    const ballRadius = ball.radius || 120;
+    const minDist = actorRadius + ballRadius;
+
+    const dx = ball.x - unitX;
+    const dy = ball.y - unitY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < minDist) {
+      // Unit is colliding with ball - push the ball
+      const overlap = minDist - dist;
+
+      // Handle edge case where positions are exactly the same
+      let normalX, normalY;
+      if (dist < 0.001) {
+        const angle = Math.random() * Math.PI * 2;
+        normalX = Math.cos(angle);
+        normalY = Math.sin(angle);
+      } else {
+        normalX = dx / dist;
+        normalY = dy / dist;
+      }
+
+      // Push ball away from unit
+      const pushForce = 50; // Gentle push from walking into ball
+      ball.velocityX = (ball.velocityX || 0) + normalX * pushForce;
+      ball.velocityY = (ball.velocityY || 0) + normalY * pushForce;
+
+      // Also move ball out of overlap
+      ball.x += normalX * (overlap + 0.1);
+      ball.y += normalY * (overlap + 0.1);
+    }
   }
 
   // Handle attacking behavior
@@ -435,7 +548,10 @@ class GameLoop {
     const dy = resource.y - actor.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > CONSTANTS.GATHER_RANGE) {
+    // Account for both actor and resource radii in gather range
+    const effectiveGatherRange = CONSTANTS.GATHER_RANGE + (actor.radius || 16) + (resource.radius || 40);
+
+    if (dist > effectiveGatherRange) {
       // Move toward resource
       actor.targetX = resource.x;
       actor.targetY = resource.y;
@@ -479,7 +595,10 @@ class GameLoop {
     const dy = base.y - actor.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > 50) {
+    // Account for both actor and base radii
+    const depositRange = (actor.radius || 16) + (base.radius || 50) + 10;
+
+    if (dist > depositRange) {
       actor.targetX = base.x;
       actor.targetY = base.y;
       this.updateMovement(actor, deltaTime);
@@ -519,7 +638,10 @@ class GameLoop {
     const dy = building.y - actor.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (dist > CONSTANTS.BUILD_RANGE) {
+    // Account for both actor and building radii
+    const effectiveBuildRange = CONSTANTS.BUILD_RANGE + (actor.radius || 16) + (building.radius || 40);
+
+    if (dist > effectiveBuildRange) {
       actor.targetX = building.x;
       actor.targetY = building.y;
       this.updateMovement(actor, deltaTime);
@@ -558,15 +680,17 @@ class GameLoop {
       training.progress += deltaTime;
 
       if (training.progress >= training.trainTime) {
+        // Find valid spawn position
+        const entityDefs = this.world.entityDefs;
+        const unitDef = entityDefs.units[training.unitType];
+        const unitRadius = unitDef?.radius || 16;
+        const spawnPos = this.findValidSpawnPosition(actor, unitRadius);
+
         // Spawn unit
-        const spawnX = actor.x + (actor.rallyX || 50);
-        const spawnY = actor.y + (actor.rallyY || 0);
-        const unit = this.world.createActorFromDef('unit', training.unitType, spawnX, spawnY, actor.ownerId);
+        const unit = this.world.createActorFromDef('unit', training.unitType, spawnPos.x, spawnPos.y, actor.ownerId);
 
         // Update player supply
         const player = this.players.get(actor.ownerId);
-        const entityDefs = this.world.entityDefs;
-        const unitDef = entityDefs.units[training.unitType];
         if (player && unitDef) {
           player.supply += unitDef.supply || 1;
         }
@@ -574,6 +698,57 @@ class GameLoop {
         actor.trainingQueue.shift();
       }
     }
+  }
+
+  // Find valid spawn position near a building
+  findValidSpawnPosition(building, unitRadius) {
+    const buildingRadius = building.radius || 50;
+    const spawnDistance = buildingRadius + unitRadius + 10; // Small buffer
+
+    // Try positions in a spiral pattern around the building
+    for (let ring = 0; ring < 5; ring++) {
+      const ringDist = spawnDistance + ring * (unitRadius * 2 + 5);
+      const numPositions = 8 + ring * 4; // More positions in outer rings
+
+      for (let i = 0; i < numPositions; i++) {
+        const angle = (i / numPositions) * Math.PI * 2;
+        const testX = building.x + Math.cos(angle) * ringDist;
+        const testY = building.y + Math.sin(angle) * ringDist;
+
+        if (this.isPositionValid(testX, testY, unitRadius)) {
+          return { x: testX, y: testY };
+        }
+      }
+    }
+
+    // Fallback to original position if no valid spot found
+    return { x: building.x + spawnDistance, y: building.y };
+  }
+
+  // Check if a position is valid for spawning (no collisions)
+  isPositionValid(x, y, radius) {
+    // Check world bounds
+    const worldWidth = this.world.width * CONSTANTS.TILE_WIDTH;
+    const worldHeight = this.world.height * CONSTANTS.TILE_HEIGHT;
+    if (x < radius || x > worldWidth - radius || y < radius || y > worldHeight - radius) {
+      return false;
+    }
+
+    // Check collision with all actors
+    for (const other of this.world.getAllActors()) {
+      const otherRadius = other.radius || 16;
+      const minDist = radius + otherRadius;
+
+      const dx = x - other.x;
+      const dy = y - other.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < minDist) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   // Check for auto-attack on idle units
@@ -639,6 +814,53 @@ class GameLoop {
       ball.y = worldHeight - ballRadius;
       ball.velocityY = -Math.abs(ball.velocityY || 0) * 0.8;
     }
+
+    // Check collision with buildings and units
+    this.resolveBallActorCollisions(ball);
+  }
+
+  // Resolve ball collisions with buildings and units
+  resolveBallActorCollisions(ball) {
+    const ballRadius = ball.radius || 120;
+
+    for (const other of this.world.getAllActors()) {
+      if (other.type !== 'building' && other.type !== 'unit') continue;
+
+      const otherRadius = other.radius || (other.type === 'building' ? 40 : 16);
+      const minDist = ballRadius + otherRadius;
+
+      const dx = ball.x - other.x;
+      const dy = ball.y - other.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < minDist) {
+        const overlap = minDist - dist;
+
+        // Handle edge case where positions are exactly the same
+        let normalX, normalY;
+        if (dist < 0.001) {
+          const angle = Math.random() * Math.PI * 2;
+          normalX = Math.cos(angle);
+          normalY = Math.sin(angle);
+        } else {
+          normalX = dx / dist;
+          normalY = dy / dist;
+        }
+
+        // Move ball out of overlap
+        ball.x += normalX * (overlap + 0.1);
+        ball.y += normalY * (overlap + 0.1);
+
+        // Reflect velocity with different bounce factors
+        const dotProduct = (ball.velocityX || 0) * normalX + (ball.velocityY || 0) * normalY;
+        if (dotProduct < 0) {
+          // Buildings bounce fully, units absorb some energy
+          const bounceFactor = other.type === 'building' ? 0.7 : 0.5;
+          ball.velocityX = ((ball.velocityX || 0) - 2 * dotProduct * normalX) * bounceFactor;
+          ball.velocityY = ((ball.velocityY || 0) - 2 * dotProduct * normalY) * bounceFactor;
+        }
+      }
+    }
   }
 
   // Check win condition
@@ -646,17 +868,21 @@ class GameLoop {
     const ball = this.world.getBall();
     if (!ball) return;
 
+    const ballRadius = ball.radius || 120;
     const worldWidth = this.world.width * CONSTANTS.TILE_WIDTH;
     const goalWidth = 100;
     const goalTop = (this.world.height * CONSTANTS.TILE_HEIGHT) / 2 - 100;
     const goalBottom = goalTop + 200;
 
-    // Left goal (Player 2 wins if ball enters)
-    if (ball.x < goalWidth && ball.y > goalTop && ball.y < goalBottom) {
+    // Check if ball touches goal vertically (ball edge overlaps goal area)
+    const touchesGoalVertically = (ball.y + ballRadius > goalTop) && (ball.y - ballRadius < goalBottom);
+
+    // Left goal (Player 2 wins if ball touches)
+    if ((ball.x - ballRadius < goalWidth) && touchesGoalVertically) {
       this.endGame(this.getPlayerByIndex(1)); // Player 2 wins
     }
-    // Right goal (Player 1 wins if ball enters)
-    else if (ball.x > worldWidth - goalWidth && ball.y > goalTop && ball.y < goalBottom) {
+    // Right goal (Player 1 wins if ball touches)
+    else if ((ball.x + ballRadius > worldWidth - goalWidth) && touchesGoalVertically) {
       this.endGame(this.getPlayerByIndex(0)); // Player 1 wins
     }
   }

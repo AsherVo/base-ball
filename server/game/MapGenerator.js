@@ -30,9 +30,9 @@ class MapGenerator {
       // Create starting workers around base
       for (let i = 0; i < CONSTANTS.STARTING_WORKERS; i++) {
         const angle = (i / CONSTANTS.STARTING_WORKERS) * Math.PI * 2;
-        const workerRadius = 60;
-        const workerX = baseX + Math.cos(angle) * workerRadius;
-        const workerY = baseY + Math.sin(angle) * workerRadius;
+        const workerSpawnRadius = 80; // Far enough to avoid base collision
+        const workerX = baseX + Math.cos(angle) * workerSpawnRadius;
+        const workerY = baseY + Math.sin(angle) * workerSpawnRadius;
         world.createActorFromDef('unit', 'worker', workerX, workerY, playerId);
       }
 
