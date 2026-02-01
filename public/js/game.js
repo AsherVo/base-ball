@@ -471,6 +471,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (clickedActor.type === 'resource') {
         // Right-click on resource: gather
         sendGatherCommand(clickedActor.id);
+      } else if (clickedActor.type === 'ball') {
+        // Right-click on ball: attack to shoot it
+        sendAttackCommand(clickedActor.id);
       } else if (clickedActor.ownerId && clickedActor.ownerId !== myPlayerId) {
         // Right-click on enemy: attack
         sendAttackCommand(clickedActor.id);

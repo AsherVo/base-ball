@@ -35,6 +35,10 @@ class MapGenerator {
         const workerY = baseY + Math.sin(angle) * workerRadius;
         world.createActorFromDef('unit', 'worker', workerX, workerY, playerId);
       }
+
+      // Create starting soldier near base (toward center)
+      const soldierOffsetX = index === 0 ? 100 : -100;
+      world.createActorFromDef('unit', 'soldier', baseX + soldierOffsetX, baseY, playerId);
     });
 
     // Create mineral nodes

@@ -72,7 +72,7 @@ const EntityDefs = {
     ball: {
       type: 'ball',
       subtype: 'ball',
-      radius: 30
+      radius: 120
     }
   }
 };

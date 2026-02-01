@@ -226,7 +226,7 @@ class GameLoop {
 
       if (dist <= CONSTANTS.PUSH_RANGE) {
         // Push the ball away from the unit
-        const pushForce = 300;
+        const pushForce = 75; // Reduced for heavier ball
         const normalX = dx / dist;
         const normalY = dy / dist;
         ball.velocityX = (ball.velocityX || 0) + normalX * pushForce;
@@ -368,7 +368,7 @@ class GameLoop {
   // Handle attacking behavior
   updateAttacking(actor, deltaTime) {
     const target = this.world.getActor(actor.attackTargetId);
-    if (!target || target.health <= 0) {
+    if (!target || (target.type !== 'ball' && target.health <= 0)) {
       actor.attackTargetId = null;
       actor.state = 'idle';
       return;
@@ -378,8 +378,10 @@ class GameLoop {
     const dy = target.y - actor.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const attackRange = actor.attackRange || 50;
+    const targetRadius = target.radius || 0; // Factor in ball radius
+    const effectiveRange = attackRange + targetRadius;
 
-    if (dist > attackRange) {
+    if (dist > effectiveRange) {
       // Move toward target
       actor.targetX = target.x;
       actor.targetY = target.y;
@@ -387,18 +389,35 @@ class GameLoop {
     } else if (actor.attackCooldown <= 0) {
       // Attack
       const damage = actor.attack || 10;
-      target.health -= damage;
       actor.attackCooldown = 1 / (actor.attackSpeed || 1);
 
-      // Emit attack event for visual feedback
-      this.io.to(this.roomId).emit('attackEvent', {
-        attackerId: actor.id,
-        targetId: target.id,
-        damage
-      });
+      // If attacking the ball, push it in the direction of the shot
+      if (target.type === 'ball') {
+        const pushForce = 100; // Reduced for heavier ball
+        const normalX = dx / dist;
+        const normalY = dy / dist;
+        target.velocityX = (target.velocityX || 0) + normalX * pushForce;
+        target.velocityY = (target.velocityY || 0) + normalY * pushForce;
 
-      if (target.health <= 0) {
-        this.handleDeath(target);
+        // Emit attack event for visual feedback
+        this.io.to(this.roomId).emit('attackEvent', {
+          attackerId: actor.id,
+          targetId: target.id,
+          damage: 0
+        });
+      } else {
+        target.health -= damage;
+
+        // Emit attack event for visual feedback
+        this.io.to(this.roomId).emit('attackEvent', {
+          attackerId: actor.id,
+          targetId: target.id,
+          damage
+        });
+
+        if (target.health <= 0) {
+          this.handleDeath(target);
+        }
       }
     }
   }
@@ -603,7 +622,7 @@ class GameLoop {
     // Bounce off map edges
     const worldWidth = this.world.width * CONSTANTS.TILE_WIDTH;
     const worldHeight = this.world.height * CONSTANTS.TILE_HEIGHT;
-    const ballRadius = 30;
+    const ballRadius = ball.radius || 120;
 
     if (ball.x < ballRadius) {
       ball.x = ballRadius;
