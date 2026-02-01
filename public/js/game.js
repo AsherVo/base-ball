@@ -68,6 +68,15 @@ document.addEventListener('DOMContentLoaded', () => {
   let fogGridWidth = 0;
   let fogGridHeight = 0;
 
+  // Debug settings
+  let debugFogDisabled = false;
+  const debugFogToggle = document.getElementById('debug-fog-toggle');
+  if (debugFogToggle) {
+    debugFogToggle.addEventListener('change', (e) => {
+      debugFogDisabled = e.target.checked;
+    });
+  }
+
   // Initialize
   if (!roomId || !playerName) {
     window.location.href = '/';
@@ -980,6 +989,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function isPositionVisible(worldX, worldY) {
+    if (debugFogDisabled) return true;
     if (!visibilityGrid) return true;
 
     const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
@@ -994,6 +1004,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function drawFogOfWar() {
+    if (debugFogDisabled) return;
     if (!visibilityGrid || !world) return;
 
     const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
@@ -1565,7 +1576,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Draw fog overlay on minimap
-    if (visibilityGrid) {
+    if (visibilityGrid && !debugFogDisabled) {
       const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
       const minimapFogScaleX = scaleX * fogTileSize;
       const minimapFogScaleY = scaleY * fogTileSize;
