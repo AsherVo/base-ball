@@ -171,8 +171,6 @@ document.addEventListener('DOMContentLoaded', () => {
     roomStatus.textContent = 'Both players here! Click Ready when you want to start.';
     readyBtn.classList.remove('hidden');
     showStatus('Click Ready when you want to start!');
-    // Auto-ready for faster testing
-    network.playerReady();
   });
 
   network.on('readyUpdate', (data) => {

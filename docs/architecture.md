@@ -70,6 +70,7 @@ The NetworkClient class wraps Socket.io to provide a clean API for game-specific
 - Handle user input (selection, camera, commands)
 - Send commands to server (not execute locally)
 - Display UI (resources, unit info, build menu, game over)
+- Calculate and render fog of war based on player's unit vision
 
 ## Shared Code
 
@@ -99,16 +100,19 @@ The World class represents the physical state of a game match:
 
 ```javascript
 // Units
-worker:   { health: 50, speed: 120, attack: 5, cost: 50, trainTime: 8 }
-soldier:  { health: 100, speed: 100, attack: 15, cost: 100, trainTime: 10 }
+worker:   { health: 50, speed: 120, attack: 5, cost: 50, trainTime: 8, visionRadius: 200 }
+soldier:  { health: 100, speed: 100, attack: 15, cost: 100, trainTime: 10, visionRadius: 250 }
 
 // Buildings
-base:        { health: 1000, trains: ['worker'], suppliesProvided: 10 }
-barracks:    { health: 400, cost: 150, buildTime: 15, trains: ['soldier'] }
-supplyDepot: { health: 200, cost: 100, buildTime: 10, suppliesProvided: 8 }
+base:        { health: 1000, trains: ['worker'], suppliesProvided: 10, visionRadius: 350 }
+barracks:    { health: 400, cost: 150, buildTime: 15, trains: ['soldier'], visionRadius: 250 }
+supplyDepot: { health: 200, cost: 100, buildTime: 10, suppliesProvided: 8, visionRadius: 200 }
 
 // Resources
 minerals: { amount: 1500, gatherRate: 10 }
+
+// Ball (provides vision to both players)
+ball: { radius: 120, visionRadius: 300 }
 ```
 
 ## Data Flow

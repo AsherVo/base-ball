@@ -52,6 +52,9 @@ class Actor {
 
     // Collision radius (used by all types)
     this.radius = 16; // Default for units
+
+    // Vision radius for fog of war
+    this.visionRadius = 200; // Default vision
   }
 
   // Apply stats from entity definition
@@ -68,6 +71,7 @@ class Actor {
     this.speed = def.speed || 0;
     this.amount = def.amount || 0;
     this.radius = def.radius || 30;
+    this.visionRadius = def.visionRadius || 200;
   }
 
   // Serialize actor state for network transmission
@@ -83,7 +87,8 @@ class Actor {
       health: this.health,
       maxHealth: this.maxHealth,
       state: this.state,
-      radius: this.radius
+      radius: this.radius,
+      visionRadius: this.visionRadius
     };
 
     // Only include relevant fields based on type
@@ -125,6 +130,7 @@ class Actor {
     actor.maxHealth = data.maxHealth ?? 100;
     actor.state = data.state || 'idle';
     actor.radius = data.radius || 16;
+    actor.visionRadius = data.visionRadius || 200;
 
     if (data.type === 'unit') {
       actor.attack = data.attack || 0;

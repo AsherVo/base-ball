@@ -533,7 +533,7 @@ class GameLoop {
 
       // If attacking the ball, push it in the direction of the shot
       if (target.type === 'ball') {
-        const pushForce = 100; // Reduced for heavier ball
+        const pushForce = 10;
         const normalX = dx / dist;
         const normalY = dy / dist;
         target.velocityX = (target.velocityX || 0) + normalX * pushForce;

@@ -120,13 +120,21 @@ This project is now a functional RTS game prototype with all core mechanics impl
 - Units walking into ball push it gently
 - Unit spawn positions validated to avoid overlapping with existing actors
 
+### Fog of War (Complete)
+- All units and buildings have vision radius (workers: 200px, soldiers: 250px, base: 350px, barracks: 250px, supply depot: 200px)
+- Map areas outside player's vision are darkened with fog overlay
+- Enemy units and buildings hidden in fog of war (not rendered)
+- Ball provides shared vision to both players (300px radius)
+- Minimap shows fog overlay reflecting visible/fogged areas
+- Players cannot click on or select enemy units hidden in fog
+- Attack effects only shown if either end is visible
+
 ## What's Missing
 
 ### Polish & Balance
 - No sound effects or music
 - Limited visual feedback for some actions
 - Balance tuning needed for unit stats and costs
-- No fog of war
 
 ### Development Tooling (Not Configured)
 - No test framework

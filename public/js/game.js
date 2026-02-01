@@ -63,6 +63,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Visual effects
   const attackEffects = []; // {x, y, targetX, targetY, time}
 
+  // Fog of war - visibility cache (updated each frame)
+  let visibilityGrid = null;  // 2D array of boolean values
+  let fogGridWidth = 0;
+  let fogGridHeight = 0;
+
   // Initialize
   if (!roomId || !playerName) {
     window.location.href = '/';
@@ -559,6 +564,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let closestDist = Infinity;
 
     for (const actor of actors) {
+      // Skip enemy actors in fog of war
+      const isEnemy = actor.ownerId != null && actor.ownerId !== myPlayerId;
+      if (isEnemy && !isPositionVisible(actor.x, actor.y)) {
+        continue;
+      }
+
       // Use actual radius for ball, slightly expanded radius for small actors
       const baseRadius = actor.radius || UNIT_RADIUS;
       const clickRadius = actor.type === 'ball' ? baseRadius : baseRadius * 1.5;
@@ -609,12 +620,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function filterSelectionByPriority(actors) {
+    // Filter out enemies in fog of war first
+    const visibleActors = actors.filter(a => {
+      const isEnemy = a.ownerId != null && a.ownerId !== myPlayerId;
+      return !isEnemy || isPositionVisible(a.x, a.y);
+    });
+
     // Separate actors by category
-    const myUnits = actors.filter(a => a.ownerId === myPlayerId && a.type === 'unit');
-    const myBuildings = actors.filter(a => a.ownerId === myPlayerId && a.type === 'building');
-    const enemyActors = actors.filter(a => a.ownerId != null && a.ownerId !== myPlayerId);
-    const neutralActors = actors.filter(a => a.ownerId == null && a.type !== 'ball');
-    const ball = actors.find(a => a.type === 'ball');
+    const myUnits = visibleActors.filter(a => a.ownerId === myPlayerId && a.type === 'unit');
+    const myBuildings = visibleActors.filter(a => a.ownerId === myPlayerId && a.type === 'building');
+    const enemyActors = visibleActors.filter(a => a.ownerId != null && a.ownerId !== myPlayerId);
+    const neutralActors = visibleActors.filter(a => a.ownerId == null && a.type !== 'ball');
+    const ball = visibleActors.find(a => a.type === 'ball');
 
     // Priority 1: If we have my units, prefer them over everything else
     if (myUnits.length > 0) {
@@ -887,6 +904,125 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Fog of War functions
+  function calculateVisibility() {
+    if (!world) return;
+
+    const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
+    const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+    const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+
+    // Initialize fog grid
+    fogGridWidth = Math.ceil(worldPixelWidth / fogTileSize);
+    fogGridHeight = Math.ceil(worldPixelHeight / fogTileSize);
+
+    // Reset visibility grid to all false (fog)
+    visibilityGrid = [];
+    for (let y = 0; y < fogGridHeight; y++) {
+      visibilityGrid[y] = new Array(fogGridWidth).fill(false);
+    }
+
+    // Get all vision sources for this player
+    const visionSources = [];
+
+    // Add own units and buildings
+    const actors = world.getAllActors();
+    for (const actor of actors) {
+      if (actor.ownerId === myPlayerId && (actor.type === 'unit' || actor.type === 'building')) {
+        visionSources.push({
+          x: actor.x,
+          y: actor.y,
+          radius: actor.visionRadius || CONSTANTS.DEFAULT_VISION_RADIUS
+        });
+      }
+    }
+
+    // Ball provides vision to both players
+    const ball = world.getBall();
+    if (ball) {
+      visionSources.push({
+        x: ball.x,
+        y: ball.y,
+        radius: ball.visionRadius || 300
+      });
+    }
+
+    // Mark visible cells
+    for (const source of visionSources) {
+      const radiusTiles = Math.ceil(source.radius / fogTileSize);
+      const centerTileX = Math.floor(source.x / fogTileSize);
+      const centerTileY = Math.floor(source.y / fogTileSize);
+
+      // Check tiles within bounding box of vision radius
+      for (let dy = -radiusTiles; dy <= radiusTiles; dy++) {
+        for (let dx = -radiusTiles; dx <= radiusTiles; dx++) {
+          const tileX = centerTileX + dx;
+          const tileY = centerTileY + dy;
+
+          // Skip out of bounds
+          if (tileX < 0 || tileX >= fogGridWidth || tileY < 0 || tileY >= fogGridHeight) {
+            continue;
+          }
+
+          // Check if tile center is within vision radius
+          const tileCenterX = (tileX + 0.5) * fogTileSize;
+          const tileCenterY = (tileY + 0.5) * fogTileSize;
+          const distX = tileCenterX - source.x;
+          const distY = tileCenterY - source.y;
+          const dist = Math.sqrt(distX * distX + distY * distY);
+
+          if (dist <= source.radius) {
+            visibilityGrid[tileY][tileX] = true;
+          }
+        }
+      }
+    }
+  }
+
+  function isPositionVisible(worldX, worldY) {
+    if (!visibilityGrid) return true;
+
+    const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
+    const tileX = Math.floor(worldX / fogTileSize);
+    const tileY = Math.floor(worldY / fogTileSize);
+
+    if (tileX < 0 || tileX >= fogGridWidth || tileY < 0 || tileY >= fogGridHeight) {
+      return false;
+    }
+
+    return visibilityGrid[tileY][tileX];
+  }
+
+  function drawFogOfWar() {
+    if (!visibilityGrid || !world) return;
+
+    const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
+    const scaledTileSize = fogTileSize * cameraZoom;
+
+    // Calculate visible area in fog tiles
+    const viewWidth = canvas.width / cameraZoom;
+    const viewHeight = canvas.height / cameraZoom;
+    const startTileX = Math.floor(cameraX / fogTileSize);
+    const startTileY = Math.floor(cameraY / fogTileSize);
+    const endTileX = Math.ceil((cameraX + viewWidth) / fogTileSize);
+    const endTileY = Math.ceil((cameraY + viewHeight) / fogTileSize);
+
+    ctx.fillStyle = CONSTANTS.FOG_COLOR;
+
+    for (let ty = startTileY; ty <= endTileY && ty < fogGridHeight; ty++) {
+      for (let tx = startTileX; tx <= endTileX && tx < fogGridWidth; tx++) {
+        if (tx < 0 || ty < 0) continue;
+
+        // Only draw fog on non-visible tiles
+        if (!visibilityGrid[ty][tx]) {
+          const screenX = (tx * fogTileSize - cameraX) * cameraZoom;
+          const screenY = (ty * fogTileSize - cameraY) * cameraZoom;
+          ctx.fillRect(screenX, screenY, scaledTileSize + 1, scaledTileSize + 1);
+        }
+      }
+    }
+  }
+
   function draw() {
     ctx.fillStyle = '#1a1a2e';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -902,9 +1038,13 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    // Calculate fog of war visibility
+    calculateVisibility();
+
     drawMap();
     drawGoals();
     drawActors();
+    drawFogOfWar();
     drawAttackEffects();
     drawBuildGhost();
     drawSelectionBox();
@@ -973,6 +1113,12 @@ document.addEventListener('DOMContentLoaded', () => {
     actors.sort((a, b) => a.y - b.y);
 
     for (const actor of actors) {
+      // Check fog of war visibility for enemy actors
+      const isEnemy = actor.ownerId != null && actor.ownerId !== myPlayerId;
+      if (isEnemy && !isPositionVisible(actor.x, actor.y)) {
+        continue; // Skip rendering enemy actors in fog
+      }
+
       if (actor.type === 'ball') {
         drawBall(actor);
       } else if (actor.type === 'resource') {
@@ -1190,6 +1336,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function drawAttackEffects() {
     for (const effect of attackEffects) {
+      // Only draw attack effects if either end is visible
+      if (!isPositionVisible(effect.x, effect.y) && !isPositionVisible(effect.targetX, effect.targetY)) {
+        continue;
+      }
+
       const startX = (effect.x - cameraX) * cameraZoom;
       const startY = (effect.y - cameraY) * cameraZoom;
       const endX = (effect.targetX - cameraX) * cameraZoom;
@@ -1296,6 +1447,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Actors on minimap
     const actors = world.getAllActors();
     for (const actor of actors) {
+      // Check fog of war visibility for enemy actors on minimap
+      const isEnemy = actor.ownerId != null && actor.ownerId !== myPlayerId;
+      if (isEnemy && !isPositionVisible(actor.x, actor.y)) {
+        continue; // Skip rendering enemy actors in fog
+      }
+
       const dotX = minimapX + actor.x * scaleX;
       const dotY = minimapY + actor.y * scaleY;
       let dotRadius = 3;
@@ -1316,6 +1473,24 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.beginPath();
       ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // Draw fog overlay on minimap
+    if (visibilityGrid) {
+      const fogTileSize = CONSTANTS.FOG_TILE_SIZE;
+      const minimapFogScaleX = scaleX * fogTileSize;
+      const minimapFogScaleY = scaleY * fogTileSize;
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      for (let ty = 0; ty < fogGridHeight; ty++) {
+        for (let tx = 0; tx < fogGridWidth; tx++) {
+          if (!visibilityGrid[ty][tx]) {
+            const fogX = minimapX + tx * minimapFogScaleX;
+            const fogY = minimapY + ty * minimapFogScaleY;
+            ctx.fillRect(fogX, fogY, minimapFogScaleX + 0.5, minimapFogScaleY + 0.5);
+          }
+        }
+      }
     }
 
     // Camera viewport

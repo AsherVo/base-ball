@@ -49,6 +49,11 @@ const CONSTANTS = {
   BALL_FRICTION: 0.95,
   BALL_PUSH_FORCE: 300,
 
+  // Fog of war settings
+  FOG_COLOR: 'rgba(0, 0, 0, 0.7)',
+  FOG_TILE_SIZE: 32,  // Resolution for fog grid (pixels per cell)
+  DEFAULT_VISION_RADIUS: 200,
+
   // Team colors
   TEAM_COLORS: ['#4a90d9', '#d94a4a'] // Blue, Red
 };

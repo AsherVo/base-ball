@@ -13,6 +13,7 @@ const EntityDefs = {
       trainTime: 8,
       supply: 1,
       radius: 16,
+      visionRadius: 200,
       canGather: true,
       canBuild: true
     },
@@ -27,7 +28,8 @@ const EntityDefs = {
       cost: 100,
       trainTime: 10,
       supply: 2,
-      radius: 20
+      radius: 20,
+      visionRadius: 250
     }
   },
 
@@ -40,7 +42,8 @@ const EntityDefs = {
       buildTime: 0,
       trains: ['worker'],
       suppliesProvided: 10,
-      radius: 50
+      radius: 50,
+      visionRadius: 350
     },
     barracks: {
       type: 'building',
@@ -50,7 +53,8 @@ const EntityDefs = {
       buildTime: 15,
       trains: ['soldier'],
       suppliesProvided: 0,
-      radius: 40
+      radius: 40,
+      visionRadius: 250
     },
     supplyDepot: {
       type: 'building',
@@ -60,7 +64,8 @@ const EntityDefs = {
       buildTime: 10,
       trains: [],
       suppliesProvided: 8,
-      radius: 30
+      radius: 30,
+      visionRadius: 200
     }
   },
 
@@ -78,7 +83,8 @@ const EntityDefs = {
     ball: {
       type: 'ball',
       subtype: 'ball',
-      radius: 120
+      radius: 120,
+      visionRadius: 300  // Both players get vision from the ball
     }
   }
 };
