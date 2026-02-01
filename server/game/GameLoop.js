@@ -1,5 +1,6 @@
 const CONSTANTS = require('../../shared/constants');
 const { CommandTypes } = require('../../shared/commands');
+const MapBounds = require('../../shared/mapBounds');
 
 // Server-side game simulation loop
 class GameLoop {
@@ -460,13 +461,15 @@ class GameLoop {
       }
     }
 
-    // Clamp to world bounds
+    // Clamp to world bounds (including diagonal corners)
     const worldWidth = this.world.width * CONSTANTS.TILE_WIDTH;
     const worldHeight = this.world.height * CONSTANTS.TILE_HEIGHT;
-    finalX = Math.max(actorRadius, Math.min(worldWidth - actorRadius, finalX));
-    finalY = Math.max(actorRadius, Math.min(worldHeight - actorRadius, finalY));
+    const clamped = MapBounds.clampToPlayableArea(
+      finalX, finalY, actorRadius,
+      worldWidth, worldHeight, CONSTANTS.CORNER_CUT_SIZE
+    );
 
-    return { x: finalX, y: finalY };
+    return { x: clamped.x, y: clamped.y };
   }
 
   // Handle collision between a unit and the ball
@@ -821,25 +824,42 @@ class GameLoop {
     if (Math.abs(ball.velocityX) < 1) ball.velocityX = 0;
     if (Math.abs(ball.velocityY) < 1) ball.velocityY = 0;
 
-    // Bounce off map edges
+    // Bounce off map edges (including diagonal corners)
     const worldWidth = this.world.width * CONSTANTS.TILE_WIDTH;
     const worldHeight = this.world.height * CONSTANTS.TILE_HEIGHT;
     const ballRadius = ball.radius || 120;
+    const bounceFactor = 0.8;
 
-    if (ball.x < ballRadius) {
-      ball.x = ballRadius;
-      ball.velocityX = Math.abs(ball.velocityX || 0) * 0.8;
-    } else if (ball.x > worldWidth - ballRadius) {
-      ball.x = worldWidth - ballRadius;
-      ball.velocityX = -Math.abs(ball.velocityX || 0) * 0.8;
-    }
+    // Clamp to playable area and get collision info
+    const clamped = MapBounds.clampToPlayableArea(
+      ball.x, ball.y, ballRadius,
+      worldWidth, worldHeight, CONSTANTS.CORNER_CUT_SIZE
+    );
 
-    if (ball.y < ballRadius) {
-      ball.y = ballRadius;
-      ball.velocityY = Math.abs(ball.velocityY || 0) * 0.8;
-    } else if (ball.y > worldHeight - ballRadius) {
-      ball.y = worldHeight - ballRadius;
-      ball.velocityY = -Math.abs(ball.velocityY || 0) * 0.8;
+    // If position changed, we hit a boundary
+    if (clamped.x !== ball.x || clamped.y !== ball.y) {
+      ball.x = clamped.x;
+      ball.y = clamped.y;
+
+      // Reflect velocity based on surface normal
+      if (clamped.hitCorner) {
+        // Diagonal corner - reflect off the diagonal surface
+        const nx = clamped.normalX;
+        const ny = clamped.normalY;
+        const dotProduct = (ball.velocityX || 0) * nx + (ball.velocityY || 0) * ny;
+        if (dotProduct < 0) {
+          ball.velocityX = ((ball.velocityX || 0) - 2 * dotProduct * nx) * bounceFactor;
+          ball.velocityY = ((ball.velocityY || 0) - 2 * dotProduct * ny) * bounceFactor;
+        }
+      } else {
+        // Straight edge - simple reflection
+        if (clamped.normalX !== 0) {
+          ball.velocityX = Math.abs(ball.velocityX || 0) * Math.sign(clamped.normalX) * bounceFactor;
+        }
+        if (clamped.normalY !== 0) {
+          ball.velocityY = Math.abs(ball.velocityY || 0) * Math.sign(clamped.normalY) * bounceFactor;
+        }
+      }
     }
 
     // Check collision with buildings and units

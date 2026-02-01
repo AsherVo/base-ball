@@ -1057,6 +1057,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const tileH = CONSTANTS.TILE_HEIGHT;
     const scaledTileW = tileW * cameraZoom;
     const scaledTileH = tileH * cameraZoom;
+    const worldPixelWidth = world.width * tileW;
+    const worldPixelHeight = world.height * tileH;
+    const cornerCut = CONSTANTS.CORNER_CUT_SIZE;
 
     const viewWidth = canvas.width / cameraZoom;
     const viewHeight = canvas.height / cameraZoom;
@@ -1072,13 +1075,62 @@ document.addEventListener('DOMContentLoaded', () => {
         const screenX = (tx * tileW - cameraX) * cameraZoom;
         const screenY = (ty * tileH - cameraY) * cameraZoom;
 
-        ctx.fillStyle = (tx + ty) % 2 === 0 ? '#2a2a4e' : '#252545';
-        ctx.fillRect(screenX, screenY, scaledTileW, scaledTileH);
+        // Check if tile center is in the corner cut-off area
+        const tileCenterX = (tx + 0.5) * tileW;
+        const tileCenterY = (ty + 0.5) * tileH;
+        const isInCorner = !MapBounds.isInsidePlayableArea(
+          tileCenterX, tileCenterY, worldPixelWidth, worldPixelHeight, cornerCut
+        );
 
-        ctx.strokeStyle = '#3a3a5e';
-        ctx.strokeRect(screenX, screenY, scaledTileW, scaledTileH);
+        if (isInCorner) {
+          // Draw darker color for out-of-bounds corner areas
+          ctx.fillStyle = '#0a0a15';
+          ctx.fillRect(screenX, screenY, scaledTileW, scaledTileH);
+        } else {
+          ctx.fillStyle = (tx + ty) % 2 === 0 ? '#2a2a4e' : '#252545';
+          ctx.fillRect(screenX, screenY, scaledTileW, scaledTileH);
+
+          ctx.strokeStyle = '#3a3a5e';
+          ctx.strokeRect(screenX, screenY, scaledTileW, scaledTileH);
+        }
       }
     }
+
+    // Draw diagonal corner boundary lines
+    drawCornerBoundaries();
+  }
+
+  function drawCornerBoundaries() {
+    const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+    const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+    const cut = CONSTANTS.CORNER_CUT_SIZE;
+
+    ctx.strokeStyle = '#5a5a8e';
+    ctx.lineWidth = 2 * cameraZoom;
+
+    // Top-left diagonal: from (cut, 0) to (0, cut)
+    ctx.beginPath();
+    ctx.moveTo((cut - cameraX) * cameraZoom, (0 - cameraY) * cameraZoom);
+    ctx.lineTo((0 - cameraX) * cameraZoom, (cut - cameraY) * cameraZoom);
+    ctx.stroke();
+
+    // Top-right diagonal: from (worldWidth - cut, 0) to (worldWidth, cut)
+    ctx.beginPath();
+    ctx.moveTo((worldPixelWidth - cut - cameraX) * cameraZoom, (0 - cameraY) * cameraZoom);
+    ctx.lineTo((worldPixelWidth - cameraX) * cameraZoom, (cut - cameraY) * cameraZoom);
+    ctx.stroke();
+
+    // Bottom-left diagonal: from (0, worldHeight - cut) to (cut, worldHeight)
+    ctx.beginPath();
+    ctx.moveTo((0 - cameraX) * cameraZoom, (worldPixelHeight - cut - cameraY) * cameraZoom);
+    ctx.lineTo((cut - cameraX) * cameraZoom, (worldPixelHeight - cameraY) * cameraZoom);
+    ctx.stroke();
+
+    // Bottom-right diagonal: from (worldWidth, worldHeight - cut) to (worldWidth - cut, worldHeight)
+    ctx.beginPath();
+    ctx.moveTo((worldPixelWidth - cameraX) * cameraZoom, (worldPixelHeight - cut - cameraY) * cameraZoom);
+    ctx.lineTo((worldPixelWidth - cut - cameraX) * cameraZoom, (worldPixelHeight - cameraY) * cameraZoom);
+    ctx.stroke();
   }
 
   function drawGoals() {
@@ -1427,6 +1479,43 @@ document.addEventListener('DOMContentLoaded', () => {
     // Background
     ctx.fillStyle = 'rgba(20, 20, 40, 0.85)';
     ctx.fillRect(minimapX, minimapY, minimapW, minimapH);
+
+    // Draw corner cut-offs on minimap
+    const cornerCutX = CONSTANTS.CORNER_CUT_SIZE * scaleX;
+    const cornerCutY = CONSTANTS.CORNER_CUT_SIZE * scaleY;
+    ctx.fillStyle = 'rgba(5, 5, 15, 0.9)';
+
+    // Top-left corner
+    ctx.beginPath();
+    ctx.moveTo(minimapX, minimapY);
+    ctx.lineTo(minimapX + cornerCutX, minimapY);
+    ctx.lineTo(minimapX, minimapY + cornerCutY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Top-right corner
+    ctx.beginPath();
+    ctx.moveTo(minimapX + minimapW, minimapY);
+    ctx.lineTo(minimapX + minimapW - cornerCutX, minimapY);
+    ctx.lineTo(minimapX + minimapW, minimapY + cornerCutY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bottom-left corner
+    ctx.beginPath();
+    ctx.moveTo(minimapX, minimapY + minimapH);
+    ctx.lineTo(minimapX + cornerCutX, minimapY + minimapH);
+    ctx.lineTo(minimapX, minimapY + minimapH - cornerCutY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Bottom-right corner
+    ctx.beginPath();
+    ctx.moveTo(minimapX + minimapW, minimapY + minimapH);
+    ctx.lineTo(minimapX + minimapW - cornerCutX, minimapY + minimapH);
+    ctx.lineTo(minimapX + minimapW, minimapY + minimapH - cornerCutY);
+    ctx.closePath();
+    ctx.fill();
 
     // Border
     ctx.strokeStyle = '#4a4a6e';

@@ -186,18 +186,19 @@ User Input (game.js)
 ## Map Layout
 
 ```
-+------------------------------------------------------------------+
-|  [GOAL]     [Base]  [Workers]  [Minerals]         [Minerals]     |
-|  (Blue)        (P1)                                (center)      |
-|                                                                  |
-|                              [BALL]                              |
-|                                                                  |
-|  [Minerals]         [Minerals]  [Workers]  [Base]     [GOAL]     |
-|   (center)                                    (P2)      (Red)    |
-+------------------------------------------------------------------+
+     +----------------------------------------------------+
+    /  [GOAL]   [Base]  [Workers]  [Minerals]   [Minerals] \
+   /   (Blue)      (P1)                          (center)   \
+  |                                                          |
+  |                          [BALL]                          |
+  |                                                          |
+   \  [Minerals]       [Minerals]  [Workers]  [Base]  [GOAL]/
+    \  (center)                                  (P2)  (Red)/
+     +----------------------------------------------------+
 ```
 
 - Map is 100x60 tiles (3200x1920 pixels)
+- Octagonal shape with diagonal corner cut-offs (300px from each corner)
 - Bases placed 200px from left/right edges
 - 4 workers spawn around each base
 - 2 mineral patches near each base, 2 in contested center

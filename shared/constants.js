@@ -44,6 +44,9 @@ const CONSTANTS = {
   GOAL_WIDTH: 100,
   GOAL_HEIGHT: 200,
 
+  // Corner cut-off (diagonal corners create octagonal map)
+  CORNER_CUT_SIZE: 300,  // pixels - distance from corner where diagonal starts
+
   // Ball settings
   BALL_RADIUS: 30,
   BALL_FRICTION: 0.95,

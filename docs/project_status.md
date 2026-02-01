@@ -36,13 +36,14 @@ This project is now a functional RTS game prototype with all core mechanics impl
 
 ### World/Map/Actor System (Complete)
 - World class representing the physical state of a game match
-- 100x60 tile map (32x32 pixel tiles)
+- 100x60 tile map (32x32 pixel tiles) with octagonal shape (diagonal corner cut-offs)
 - Actor class with full entity properties (health, attack, speed, etc.)
 - Entity definitions for all game units, buildings, and resources
 - Server creates symmetrical map with bases, workers, resources, and ball
 - Client receives world state via `gameStart` and `gameState` events
 - Tile grid rendering with camera/viewport system
 - Goals drawn at map edges for ball scoring
+- Ball bounces realistically off diagonal corner boundaries
 
 ### Entity System (Complete)
 - **Units**: Workers (can gather, build), Soldiers (combat)
