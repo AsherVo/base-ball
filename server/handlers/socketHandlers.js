@@ -2,6 +2,7 @@ const World = require('../../shared/world');
 const CONSTANTS = require('../../shared/constants');
 const GameLoop = require('../game/GameLoop');
 const MapGenerator = require('../game/MapGenerator');
+const AIPlayer = require('../game/AIPlayer');
 
 // Room state
 const rooms = new Map();
@@ -64,6 +65,23 @@ function startGame(io, roomId) {
   // Create and start the game loop
   room.gameLoop = new GameLoop(world, io, roomId, playerStates);
   room.gameLoop.start();
+
+  // If this is an AI room, create and attach the AI player
+  if (room.isAIRoom && room.aiPlayerId) {
+    const aiPlayerIndex = world.getPlayerIndex(room.aiPlayerId);
+    room.aiPlayer = new AIPlayer(room.aiPlayerId, room.gameLoop, aiPlayerIndex);
+
+    // Run AI updates on the game loop tick
+    const originalTick = room.gameLoop.tick.bind(room.gameLoop);
+    room.gameLoop.tick = function() {
+      originalTick();
+      if (room.aiPlayer) {
+        room.aiPlayer.update();
+      }
+    };
+
+    console.log(`AI player initialized for room ${roomId}`);
+  }
 
   // Send initial state to all players with their player index
   for (const playerId of room.players) {
@@ -133,6 +151,58 @@ function setupSocketHandlers(io) {
       console.log(`Room ${roomId} created by ${player.name}`);
     });
 
+    // Create a room with AI opponent
+    socket.on('createRoomWithAI', () => {
+      const player = players.get(socket.id);
+      if (!player) return;
+
+      // Leave current room if in one
+      if (player.roomId) {
+        leaveRoom(socket, io);
+      }
+
+      const roomId = generateRoomId();
+      const aiPlayerId = 'AI_' + roomId;
+
+      rooms.set(roomId, {
+        id: roomId,
+        players: [socket.id, aiPlayerId],
+        host: socket.id,
+        readyPlayers: new Set(),
+        isAIRoom: true,
+        aiPlayerId: aiPlayerId
+      });
+
+      // Create a fake AI player entry
+      players.set(aiPlayerId, {
+        id: aiPlayerId,
+        name: 'AI Opponent',
+        roomId: roomId
+      });
+
+      player.roomId = roomId;
+      socket.join(roomId);
+
+      socket.emit('roomCreated', { roomId });
+      socket.emit('roomJoined', {
+        roomId,
+        players: [
+          { id: player.id, name: player.name },
+          { id: aiPlayerId, name: 'AI Opponent' }
+        ]
+      });
+
+      // Immediately emit matchReady since AI is always ready
+      socket.emit('matchReady', {
+        players: [
+          { id: player.id, name: player.name },
+          { id: aiPlayerId, name: 'AI Opponent' }
+        ]
+      });
+
+      console.log(`AI Room ${roomId} created by ${player.name}`);
+    });
+
     // Join existing room
     socket.on('joinRoom', (roomId) => {
       const player = players.get(socket.id);
@@ -144,7 +214,10 @@ function setupSocketHandlers(io) {
         return;
       }
 
-      if (room.players.length >= 2) {
+      // Check if this is a reconnection (player name matches existing player in room)
+      const isReconnection = room.playerNames && room.playerNames.has(player.name);
+
+      if (room.players.length >= 2 && !isReconnection) {
         socket.emit('error', { message: 'Room is full' });
         return;
       }
@@ -154,7 +227,11 @@ function setupSocketHandlers(io) {
         leaveRoom(socket, io);
       }
 
-      room.players.push(socket.id);
+      // Add to players array if not already there
+      // For reconnections, the old socket ID was removed on disconnect, so we need to add the new one
+      if (!room.players.includes(socket.id)) {
+        room.players.push(socket.id);
+      }
       player.roomId = roomId;
       socket.join(roomId);
 
@@ -187,6 +264,12 @@ function setupSocketHandlers(io) {
         // If there's an old player ID that's different, migrate ownership
         if (oldPlayerId && oldPlayerId !== socket.id) {
           console.log(`Migrating player ${player.name} from ${oldPlayerId} to ${socket.id}`);
+
+          // Update room.players array - replace old ID with new ID
+          const playerIndex = room.players.indexOf(oldPlayerId);
+          if (playerIndex !== -1) {
+            room.players[playerIndex] = socket.id;
+          }
 
           // Update world player mapping
           const oldPlayerIndex = room.world.getPlayerIndex(oldPlayerId);
@@ -265,6 +348,11 @@ function setupSocketHandlers(io) {
         room.readyPlayers.delete(socket.id);
       } else {
         room.readyPlayers.add(socket.id);
+      }
+
+      // For AI rooms, AI is always ready
+      if (room.isAIRoom && room.aiPlayerId) {
+        room.readyPlayers.add(room.aiPlayerId);
       }
 
       // Broadcast ready state to room
@@ -414,9 +502,43 @@ function leaveRoom(socket, io) {
     // Notify others
     socket.to(roomId).emit('playerLeft', { playerId: socket.id });
 
+    // For AI rooms, keep the room alive for reconnection if game is in progress
+    if (room.isAIRoom) {
+      if (room.world) {
+        // Game in progress - keep room for reconnection
+        // Stop the game loop temporarily
+        if (room.gameLoop) {
+          room.gameLoop.stop();
+        }
+        // Schedule cleanup after grace period
+        room.cleanupTimer = setTimeout(() => {
+          if (rooms.has(roomId)) {
+            const r = rooms.get(roomId);
+            // Only delete if still no human players
+            const hasHumanPlayer = r.players.some(pid => !pid.startsWith('AI_'));
+            if (!hasHumanPlayer) {
+              if (r.aiPlayerId) {
+                players.delete(r.aiPlayerId);
+              }
+              rooms.delete(roomId);
+              console.log(`AI Room ${roomId} deleted (abandoned)`);
+            }
+          }
+        }, 10000); // 10 second grace period for AI rooms
+        console.log(`AI Room ${roomId} waiting for reconnection`);
+      } else {
+        // No game yet - delete immediately
+        if (room.aiPlayerId) {
+          players.delete(room.aiPlayerId);
+        }
+        room.aiPlayer = null;
+        rooms.delete(roomId);
+        console.log(`AI Room ${roomId} deleted (player left before game)`);
+      }
+    }
     // Delete room if empty and no game in progress
     // Keep rooms with active games alive for players to rejoin
-    if (room.players.length === 0 && !room.world) {
+    else if (room.players.length === 0 && !room.world) {
       rooms.delete(roomId);
       console.log(`Room ${roomId} deleted (empty)`);
     } else if (room.players.length === 0 && room.world) {

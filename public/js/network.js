@@ -75,6 +75,10 @@ class NetworkClient {
     this.socket.emit('createRoom');
   }
 
+  createRoomWithAI() {
+    this.socket.emit('createRoomWithAI');
+  }
+
   joinRoom(roomId) {
     this.socket.emit('joinRoom', roomId);
   }

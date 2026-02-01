@@ -25,6 +25,7 @@ server/
   game/
     GameLoop.js         # Server-side game simulation (60 ticks/sec)
     MapGenerator.js     # Initial map generation with symmetric placement
+    AIPlayer.js         # AI opponent logic (economy, building, combat)
 ```
 
 ### State Management

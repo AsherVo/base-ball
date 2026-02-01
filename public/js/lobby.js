@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const randomNames = ['Ashley', 'Bailey', 'Cathy', 'Denmark', 'Elana', 'Frank', 'Gabby', 'Hilda', 'Iris', 'Janet', 'Karen', 'Linda', 'Monica', 'Ophelia', 'Penelope', 'Quinn', 'Rosie', 'Sandra', 'Tamar', 'Uma', 'Veronica', 'Wanda', 'Xia', 'Y', 'Zelda'];
   playerNameInput.value = randomNames[Math.floor(Math.random() * randomNames.length)];
 
+  const playAIBtn = document.getElementById('play-ai-btn');
   const createRoomBtn = document.getElementById('create-room-btn');
   const roomIdInput = document.getElementById('room-id-input');
   const joinRoomBtn = document.getElementById('join-room-btn');
@@ -94,6 +95,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Room actions
+  playAIBtn.addEventListener('click', () => {
+    network.createRoomWithAI();
+  });
+
   createRoomBtn.addEventListener('click', () => {
     network.createRoom();
   });
@@ -142,7 +147,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePlayersDisplay();
     showRoom();
     roomStatus.textContent = 'Waiting for opponent...';
-    startGameBtn.classList.add('hidden');
+    readyBtn.classList.add('hidden');
     showStatus(`Joined room ${data.roomId}`);
   });
 

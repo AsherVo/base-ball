@@ -9,6 +9,7 @@ This project is now a functional RTS game prototype with all core mechanics impl
 - Room creation with shareable codes
 - Joining rooms by code
 - Quick match queue with automatic pairing
+- **Play vs AI option for single-player practice**
 - Player list display in rooms with ready state indicators
 - Ready-up system: both players must click "Ready" to start
 - 3-second countdown when both players ready
@@ -129,6 +130,15 @@ This project is now a functional RTS game prototype with all core mechanics impl
 - Minimap shows fog overlay reflecting visible/fogged areas
 - Players cannot click on or select enemy units hidden in fog
 - Attack effects only shown if either end is visible
+
+### AI Opponent (Complete)
+- "Play vs AI" button in lobby to start a single-player game
+- AI manages its economy: assigns workers to gather resources
+- AI builds supply depots when approaching supply cap
+- AI builds barracks and trains soldiers
+- AI trains workers up to a reasonable count
+- AI sends soldiers to push the ball toward the player's goal
+- AI runs server-side as part of the game loop
 
 ## What's Missing
 
