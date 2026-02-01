@@ -43,6 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Selection state
   let selectedActors = [];
+  let lastPanelActorId = null; // Track what actor the panel is showing
+  let lastPanelActorHealth = null;
   const UNIT_RADIUS = 16;
 
   // Build mode
@@ -149,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
   network.on('actorDeath', (data) => {
     // Remove from selection if dead
     selectedActors = selectedActors.filter(a => a.id !== data.actorId);
-    updateUnitInfoPanel();
+    updateUnitInfoPanel(true);
   });
 
   network.on('gameOver', (data) => {
@@ -457,7 +459,7 @@ document.addEventListener('DOMContentLoaded', () => {
         deselectAll();
       }
     }
-    updateUnitInfoPanel();
+    updateUnitInfoPanel(true);
   }
 
   function handleRightClick(clientX, clientY) {
@@ -547,7 +549,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function deselectAll() {
     selectedActors = [];
     buildMenu.classList.add('hidden');
-    updateUnitInfoPanel();
+    updateUnitInfoPanel(true);
   }
 
   function updateSelectionReferences() {
@@ -613,20 +615,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function updateUnitInfoPanel() {
+  function updateUnitInfoPanel(forceRebuild = false) {
     if (selectedActors.length === 0) {
       unitInfoPanel.classList.add('hidden');
+      lastPanelActorId = null;
+      lastPanelActorHealth = null;
       return;
     }
 
     unitInfoPanel.classList.remove('hidden');
     const actor = selectedActors[0];
 
-    document.getElementById('unit-id').textContent = actor.id;
-    document.getElementById('unit-type').textContent = actor.subtype || actor.type;
+    // Always update the dynamic stats (health, position)
     document.getElementById('unit-health').textContent = `${Math.round(actor.health)}/${actor.maxHealth}`;
     document.getElementById('unit-x').textContent = Math.round(actor.x);
     document.getElementById('unit-y').textContent = Math.round(actor.y);
+
+    // Only rebuild the panel fully if the selection changed
+    const selectionChanged = actor.id !== lastPanelActorId;
+    if (!selectionChanged && !forceRebuild) {
+      // Just update button disabled states without recreating them
+      updateActionButtonStates();
+      return;
+    }
+
+    lastPanelActorId = actor.id;
+    lastPanelActorHealth = actor.health;
+
+    document.getElementById('unit-id').textContent = actor.id;
+    document.getElementById('unit-type').textContent = actor.subtype || actor.type;
 
     // Show actions for owned units/buildings
     const actionsDiv = document.getElementById('unit-actions');
@@ -639,6 +656,9 @@ document.addEventListener('DOMContentLoaded', () => {
           def.trains.forEach(unitType => {
             const unitDef = EntityDefs.units[unitType];
             const btn = document.createElement('button');
+            btn.className = 'train-btn';
+            btn.dataset.unitType = unitType;
+            btn.dataset.cost = unitDef.cost;
             btn.textContent = `Train ${unitType} (${unitDef.cost})`;
             btn.disabled = !myPlayerState || myPlayerState.minerals < unitDef.cost;
             btn.addEventListener('click', () => sendTrainCommand(actor.id, unitType));
@@ -654,6 +674,15 @@ document.addEventListener('DOMContentLoaded', () => {
         actionsDiv.appendChild(buildBtn);
       }
     }
+  }
+
+  function updateActionButtonStates() {
+    // Update train button disabled states without recreating them
+    const trainButtons = document.querySelectorAll('#unit-actions .train-btn');
+    trainButtons.forEach(btn => {
+      const cost = parseInt(btn.dataset.cost, 10);
+      btn.disabled = !myPlayerState || myPlayerState.minerals < cost;
+    });
   }
 
   function showGameOver(isWinner, reason) {
