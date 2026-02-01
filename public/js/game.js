@@ -72,6 +72,18 @@ document.addEventListener('DOMContentLoaded', () => {
   roomIdDisplay.textContent = roomId;
   playerNameDisplay.textContent = playerName;
 
+  // Resize canvas to fit container
+  function resizeCanvas() {
+    const container = canvas.parentElement;
+    const rect = container.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+  }
+
+  // Initial resize and listen for window resize
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
   // Connect and rejoin room
   network.connect().then(() => {
     network.setName(playerName);
