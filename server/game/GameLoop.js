@@ -47,8 +47,12 @@ class GameLoop {
   // Add a command to be processed
   queueCommand(playerId, command) {
     const queue = this.commandQueues.get(playerId);
+    console.log('queueCommand:', { playerId, commandType: command.type, hasQueue: !!queue });
     if (queue) {
       queue.push(command);
+      console.log('Command queued, queue length:', queue.length);
+    } else {
+      console.log('No queue found for player! Available queues:', Array.from(this.commandQueues.keys()));
     }
   }
 
@@ -114,10 +118,16 @@ class GameLoop {
   // Move command - set movement target for units
   executeMoveCommand(playerId, command) {
     const { actorIds, targetX, targetY } = command;
+    console.log('executeMoveCommand:', { playerId, actorIds, targetX, targetY });
 
     for (const actorId of actorIds) {
       const actor = this.world.getActor(actorId);
-      if (!actor || actor.ownerId !== playerId) continue;
+      console.log('Processing actor', actorId, ':', actor ? { ownerId: actor.ownerId, type: actor.type } : 'NOT FOUND');
+
+      if (!actor || actor.ownerId !== playerId) {
+        console.log('Skipping actor - not found or ownership mismatch', { actorOwnerId: actor?.ownerId, playerId });
+        continue;
+      }
 
       // Set move target
       actor.targetX = targetX;
@@ -125,6 +135,7 @@ class GameLoop {
       actor.state = 'moving';
       actor.attackTargetId = null;
       actor.gatherTargetId = null;
+      console.log('Actor', actorId, 'now moving to', targetX, targetY);
     }
   }
 

@@ -51,6 +51,16 @@ function startGame(io, roomId) {
   room.world = world;
   room.playerStates = playerStates;
 
+  // Save original player IDs and names for reconnection tracking
+  room.oldPlayerIds = [...room.players];
+  room.playerNames = new Map();
+  for (const playerId of room.players) {
+    const p = players.get(playerId);
+    if (p) {
+      room.playerNames.set(p.name, playerId);
+    }
+  }
+
   // Create and start the game loop
   room.gameLoop = new GameLoop(world, io, roomId, playerStates);
   room.gameLoop.start();
@@ -169,14 +179,67 @@ function setupSocketHandlers(io) {
 
       console.log(`${player.name} joined room ${roomId}`);
 
-      // If room already has a world (game in progress), send it to the joining player
+      // If room already has a world (game in progress), handle reconnection
       if (room.world) {
-        const playerIndex = room.world.getPlayerIndex(socket.id);
+        // Find the old socket ID this player is replacing (by matching player name)
+        const oldPlayerId = room.playerNames?.get(player.name);
+
+        // If there's an old player ID that's different, migrate ownership
+        if (oldPlayerId && oldPlayerId !== socket.id) {
+          console.log(`Migrating player ${player.name} from ${oldPlayerId} to ${socket.id}`);
+
+          // Update world player mapping
+          const oldPlayerIndex = room.world.getPlayerIndex(oldPlayerId);
+          if (oldPlayerIndex != null) {
+            room.world.players.delete(oldPlayerId);
+            room.world.players.set(socket.id, oldPlayerIndex);
+          }
+
+          // Update all actor ownership
+          for (const actor of room.world.getAllActors()) {
+            if (actor.ownerId === oldPlayerId) {
+              actor.ownerId = socket.id;
+            }
+          }
+
+          // Update player states
+          if (room.playerStates?.has(oldPlayerId)) {
+            const playerState = room.playerStates.get(oldPlayerId);
+            playerState.playerId = socket.id;
+            room.playerStates.delete(oldPlayerId);
+            room.playerStates.set(socket.id, playerState);
+          }
+
+          // Update game loop command queues
+          if (room.gameLoop?.commandQueues?.has(oldPlayerId)) {
+            const queue = room.gameLoop.commandQueues.get(oldPlayerId);
+            room.gameLoop.commandQueues.delete(oldPlayerId);
+            room.gameLoop.commandQueues.set(socket.id, queue);
+          }
+
+          // Update game loop players reference
+          if (room.gameLoop?.players?.has(oldPlayerId)) {
+            const playerState = room.gameLoop.players.get(oldPlayerId);
+            room.gameLoop.players.delete(oldPlayerId);
+            room.gameLoop.players.set(socket.id, playerState);
+          }
+
+          // Update playerNames mapping to new socket ID
+          room.playerNames.set(player.name, socket.id);
+        }
+
+        // Restart game loop if it was stopped
+        if (room.gameLoop && !room.gameLoop.running) {
+          console.log(`Restarting game loop for room ${roomId}`);
+          room.gameLoop.start();
+        }
+
+        const actualPlayerIndex = room.world.getPlayerIndex(socket.id);
         const playerState = room.playerStates?.get(socket.id);
         socket.emit('gameStart', {
           world: room.world.toJSON(),
           playerId: socket.id,
-          playerIndex: playerIndex ?? room.players.indexOf(socket.id),
+          playerIndex: actualPlayerIndex ?? 0,
           playerState: playerState?.toJSON()
         });
         console.log(`Sent existing world to ${player.name}`);
@@ -222,12 +285,21 @@ function setupSocketHandlers(io) {
     // Handle player commands
     socket.on('playerCommand', (command) => {
       const player = players.get(socket.id);
-      if (!player || !player.roomId) return;
+      console.log('playerCommand received:', command.type, 'from', socket.id, 'player:', player?.name);
+
+      if (!player || !player.roomId) {
+        console.log('No player or roomId');
+        return;
+      }
 
       const room = rooms.get(player.roomId);
-      if (!room || !room.gameLoop) return;
+      if (!room || !room.gameLoop) {
+        console.log('No room or gameLoop', { hasRoom: !!room, hasGameLoop: !!room?.gameLoop });
+        return;
+      }
 
       // Queue the command for processing
+      console.log('Queueing command for', socket.id);
       room.gameLoop.queueCommand(socket.id, command);
     });
 

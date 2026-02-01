@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateUnitInfoPanel();
     updateResourceDisplay();
     gameStatus.textContent = 'Game started!';
-    console.log('World received:', world, 'I am player', myPlayerIndex);
+    console.log('World received:', world, 'I am player', myPlayerIndex, 'myPlayerId:', myPlayerId);
   });
 
   network.on('gameState', (data) => {
@@ -276,6 +276,12 @@ document.addEventListener('DOMContentLoaded', () => {
   let rightClickStartX = 0;
   let rightClickStartY = 0;
   let isRightClickDrag = false;
+  let isRightClickAction = false; // Track if we started a right-click action
+
+  // Helper to detect right-click (button 2 or Ctrl+click on Mac)
+  function isRightClick(e) {
+    return e.button === 2 || (e.button === 0 && e.ctrlKey);
+  }
 
   canvas.addEventListener('mousedown', (e) => {
     if (e.button === 1) {
@@ -286,11 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
       dragCameraStartX = cameraX;
       dragCameraStartY = cameraY;
       canvas.style.cursor = 'grabbing';
-    } else if (e.button === 2) {
+    } else if (isRightClick(e)) {
       e.preventDefault();
       rightClickStartX = e.clientX;
       rightClickStartY = e.clientY;
       isRightClickDrag = false;
+      isRightClickAction = true;
       isDragging = true;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
@@ -341,8 +348,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.button === 1) {
       isDragging = false;
       canvas.style.cursor = 'default';
-    } else if (e.button === 2) {
+    } else if (isRightClickAction && (e.button === 2 || e.button === 0)) {
       isDragging = false;
+      isRightClickAction = false;
       canvas.style.cursor = 'default';
       if (!isRightClickDrag && selectedActors.length > 0 && world) {
         handleRightClick(e.clientX, e.clientY);
@@ -360,11 +368,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Command helpers
   function sendMoveCommand(targetX, targetY) {
+    console.log('sendMoveCommand called', { targetX, targetY });
+    console.log('selectedActors:', selectedActors.map(a => ({ id: a.id, type: a.type, ownerId: a.ownerId })));
+    console.log('myPlayerId:', myPlayerId);
+
     const myUnitIds = selectedActors
       .filter(a => a.ownerId === myPlayerId && a.type === 'unit')
       .map(a => a.id);
+
+    console.log('Filtered unit IDs to move:', myUnitIds);
+
     if (myUnitIds.length > 0) {
+      console.log('Sending MOVE command');
       network.sendCommand(Commands.move(myUnitIds, targetX, targetY));
+    } else {
+      console.log('No units to move - ownership mismatch or no units selected');
     }
   }
 
@@ -417,6 +435,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const worldPos = screenToWorld(clientX, clientY);
     const clickedActor = getActorAtPosition(worldPos.x, worldPos.y);
 
+    console.log('handleLeftClick at world pos:', worldPos);
+    console.log('clickedActor:', clickedActor);
+
     if (clickedActor) {
       if (shiftKey) {
         // Shift+click: toggle selection
@@ -430,6 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Regular click: replace selection
         selectedActors = [clickedActor];
       }
+      console.log('Selected actor:', clickedActor.id, 'ownerId:', clickedActor.ownerId, 'myPlayerId:', myPlayerId);
     } else {
       if (!shiftKey) {
         deselectAll();
@@ -439,6 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function handleRightClick(clientX, clientY) {
+    console.log('handleRightClick called at', clientX, clientY);
     const worldPos = screenToWorld(clientX, clientY);
     const clickedActor = getActorAtPosition(worldPos.x, worldPos.y);
 
