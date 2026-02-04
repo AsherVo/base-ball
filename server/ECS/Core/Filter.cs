@@ -1,139 +1,134 @@
-namespace server.ECS.Core;
+using System.Text;
 
-/// <summary>
-/// A filter for querying entities based on their components.
-/// Filters are immutable once built.
-/// </summary>
+namespace server.ECS;
+
+public struct RelationFilter
+{
+    public Type RelationType;
+    public long[] ToEntities;
+
+    public override string ToString ()
+    {
+        var sb = new StringBuilder ();
+        sb.Append( RelationType.ToString() );
+        sb.Append( "->" );
+        foreach ( var ent in ToEntities )
+        {
+            sb.Append( ent.ToString() );
+            sb.Append( '/' );
+        }
+        return sb.ToString();
+    }
+}
+
 public class Filter
 {
-    private readonly World _world;
-    private readonly Type[] _includeTypes;
-    private readonly Type[] _excludeTypes;
+    public Action< long, World >? onAdd;
+    public Action< long, World >? onRemove;
 
-    internal Filter(World world, Type[] includeTypes, Type[] excludeTypes)
+    public readonly Type[] Include;
+    public readonly Type[] Exclude;
+    public readonly RelationFilter[] Relates;
+    public readonly RelationFilter[] NotRelates;
+
+    public HashSet<long> Entities = new();
+    public bool IsBeingModified;
+
+    public Filter( Type[] include, Type[] exclude, RelationFilter[] relates, RelationFilter[] notRelates )
     {
-        _world = world;
-        _includeTypes = includeTypes;
-        _excludeTypes = excludeTypes;
+        Include = include;
+        Exclude = exclude;
+        Relates = relates;
+        NotRelates = notRelates;
     }
 
-    /// <summary>
-    /// Get all entity IDs matching this filter.
-    /// </summary>
-    public IEnumerable<int> GetEntities()
+    public bool Matches( long entity, World world )
     {
-        // If no include types, start with all entities
-        IEnumerable<int> candidates = _includeTypes.Length > 0
-            ? _world.GetEntitiesWithComponents(_includeTypes)
-            : _world.Entities;
-
-        // Apply exclusions
-        if (_excludeTypes.Length > 0)
+        foreach ( var includeType in Include )
         {
-            candidates = candidates.Where(entityId =>
-                !_excludeTypes.Any(type => _world.HasComponent(entityId, type)));
+            if ( !world.Has( entity, includeType ) )
+                return false;
         }
 
-        return candidates;
+        foreach ( var excludeType in Exclude )
+        {
+            if ( world.Has( entity, excludeType ) )
+                return false;
+        }
+
+        foreach ( var relation in Relates )
+        {
+            foreach ( var relatedEntity in relation.ToEntities )
+            {
+                if ( !world.Exists( relatedEntity ) || !world.HasRelation( entity, relatedEntity, relation.RelationType ) )
+                    return false;
+            }
+        }
+
+        foreach ( var relation in NotRelates )
+        {
+            foreach ( var relatedEntity in relation.ToEntities )
+            {
+                if ( world.Exists( relatedEntity ) && world.HasRelation( entity, relatedEntity, relation.RelationType ) )
+                    return false;
+            }
+        }
+
+        return true;
     }
 
-    /// <summary>
-    /// Get the count of matching entities.
-    /// </summary>
-    public int Count() => GetEntities().Count();
+    public List< long > GetListCopy() => Entities.ToList();
 
-    /// <summary>
-    /// Check if any entity matches this filter.
-    /// </summary>
-    public bool Any() => GetEntities().Any();
-
-    /// <summary>
-    /// Get the first matching entity, or Entity.None if none match.
-    /// </summary>
-    public Entity First()
+    public override string ToString()
     {
-        var id = GetEntities().FirstOrDefault(-1);
-        return id >= 0 ? new Entity(id) : Entity.None;
-    }
-}
+        var sb = new StringBuilder();
+        sb.Append( "Filter (" );
 
-/// <summary>
-/// Extension methods to support HasComponent with Type parameter.
-/// </summary>
-public static class WorldFilterExtensions
-{
-    public static bool HasComponent(this World world, int entityId, Type componentType)
-    {
-        // Use reflection to call the generic method
-        var method = typeof(World).GetMethod(nameof(World.HasComponent))!
-            .MakeGenericMethod(componentType);
-        return (bool)method.Invoke(world, new object[] { entityId })!;
-    }
-}
+        if ( Include.Length > 0 )
+        {
+            sb.Append( "[Includes: " );
+            foreach ( var inc in Include )
+            {
+                sb.Append( inc.ToString() );
+                sb.Append( ',' );
+            }
+            sb.Append( ']' );
+        }
 
-/// <summary>
-/// Builder for creating entity filters.
-/// </summary>
-public class FilterBuilder
-{
-    private readonly World _world;
-    private readonly List<Type> _includeTypes = new();
-    private readonly List<Type> _excludeTypes = new();
+        if ( Exclude.Length > 0 )
+        {
+            sb.Append( "[Excludes: " );
+            foreach ( var exc in Exclude )
+            {
+                sb.Append( exc.ToString() );
+                sb.Append( ',' );
+            }
+            sb.Append( ']' );
+        }
 
-    internal FilterBuilder(World world)
-    {
-        _world = world;
-    }
+        if ( Relates.Length > 0 )
+        {
+            sb.Append( "[Relates: " );
+            foreach ( var rel in Relates )
+            {
+                sb.Append( rel.ToString() );
+                sb.Append( ',' );
+            }
+            sb.Append( ']' );
+        }
 
-    /// <summary>
-    /// Include entities that have this component type.
-    /// </summary>
-    public FilterBuilder With<T>() where T : Component
-    {
-        _includeTypes.Add(typeof(T));
-        return this;
-    }
+        if ( NotRelates.Length > 0 )
+        {
+            sb.Append( "[NotRelates: " );
+            foreach ( var rel in NotRelates )
+            {
+                sb.Append( rel.ToString() );
+                sb.Append( ',' );
+            }
+            sb.Append( ']' );
+        }
 
-    /// <summary>
-    /// Include entities that have this component type (non-generic version).
-    /// </summary>
-    public FilterBuilder With(Type componentType)
-    {
-        _includeTypes.Add(componentType);
-        return this;
-    }
-
-    /// <summary>
-    /// Exclude entities that have this component type.
-    /// </summary>
-    public FilterBuilder Without<T>() where T : Component
-    {
-        _excludeTypes.Add(typeof(T));
-        return this;
-    }
-
-    /// <summary>
-    /// Exclude entities that have this component type (non-generic version).
-    /// </summary>
-    public FilterBuilder Without(Type componentType)
-    {
-        _excludeTypes.Add(componentType);
-        return this;
-    }
-
-    /// <summary>
-    /// Build the filter.
-    /// </summary>
-    public Filter Build()
-    {
-        return new Filter(_world, _includeTypes.ToArray(), _excludeTypes.ToArray());
-    }
-
-    /// <summary>
-    /// Build and immediately get entities (convenience method).
-    /// </summary>
-    public IEnumerable<int> GetEntities()
-    {
-        return Build().GetEntities();
+        sb.Append( ')' );
+        return sb.ToString();
     }
 }

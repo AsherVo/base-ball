@@ -1,233 +1,654 @@
-namespace server.ECS.Core;
+using server.ECS.Components;
 
-/// <summary>
-/// The World is the central container for all entities and their components.
-/// Uses in-memory Dictionary storage for fast entity/component lookup.
-/// </summary>
+namespace server.ECS;
+
 public class World
 {
-    private int _nextEntityId = 1;
-    private readonly HashSet<int> _entities = new();
-    private readonly Dictionary<int, Dictionary<Type, Component>> _components = new();
-    private readonly Dictionary<Type, HashSet<int>> _componentIndex = new();
-    private readonly MessageQueue _messageQueue = new();
+    private static int _idAt;
 
-    /// <summary>
-    /// The next entity ID that will be assigned.
-    /// </summary>
-    public int NextEntityId => _nextEntityId;
+    public int Id { get; }
 
-    /// <summary>
-    /// All active entity IDs.
-    /// </summary>
-    public IReadOnlyCollection<int> Entities => _entities;
+    // In-memory entity storage
+    private long _nextEntityId = 1;
+    private readonly HashSet< long > _entities = new();
 
-    /// <summary>
-    /// The message queue for this world.
-    /// </summary>
-    public MessageQueue Messages => _messageQueue;
+    // In-memory component storage
+    private readonly Dictionary< long, Dictionary< Type, Component > > _components = new();
 
-    /// <summary>
-    /// Creates a new entity and returns its ID.
-    /// </summary>
-    public Entity CreateEntity()
+    // Runtime-only state ( not persisted )
+    public readonly Dictionary< Type, List< ISystem > > Systems = new();
+    public readonly List< ISystem > SystemOrder = new();
+    public readonly Dictionary< Type, List< Message > > Messages = new();
+    public readonly Dictionary< Type, List< Message > > OldMessages = new();
+    public readonly Dictionary< Type, IService > Services = new();
+    public readonly List< Filter > Filters = new();
+
+    private readonly HashSet< long > _getSingleEntityCache = new();
+
+    public World ()
+    {
+        Id = _idAt;
+        _idAt++;
+
+        Console.WriteLine( $"World {Id} created." );
+    }
+
+    #region Entities
+
+    public long Create ()
     {
         var id = _nextEntityId++;
-        _entities.Add(id);
-        _components[id] = new Dictionary<Type, Component>();
-        return new Entity(id);
+        _entities.Add( id );
+        _components[id] = new Dictionary< Type, Component >();
+        return id;
     }
 
-    /// <summary>
-    /// Creates an entity with a specific ID (for deserialization).
-    /// Updates NextEntityId if necessary.
-    /// </summary>
-    public Entity CreateEntityWithId(int id)
+    public long Create ( string name, params Component[] components )
     {
-        if (_entities.Contains(id))
-            throw new InvalidOperationException($"Entity {id} already exists");
+        var entity = Create();
+        Add( entity, new Name { value = name } );
 
-        _entities.Add(id);
-        _components[id] = new Dictionary<Type, Component>();
+        foreach ( var component in components )
+            Add( entity, component );
 
-        if (id >= _nextEntityId)
-            _nextEntityId = id + 1;
-
-        return new Entity(id);
+        return entity;
     }
 
-    /// <summary>
-    /// Removes an entity and all its components.
-    /// </summary>
-    public bool DestroyEntity(int entityId)
+    public long Create ( params Component[] components )
     {
-        if (!_entities.Contains(entityId))
-            return false;
+        var entity = Create();
 
-        // Remove from component indices
-        if (_components.TryGetValue(entityId, out var entityComponents))
+        foreach ( var component in components )
+            Add( entity, component );
+
+        return entity;
+    }
+
+    public void Destroy ( long entity )
+    {
+        if ( entity == 0 )
         {
-            foreach (var type in entityComponents.Keys)
+            Console.WriteLine( "Warning: Got destroy request for null entity. Aborting." );
+            return;
+        }
+
+        if ( !Exists( entity ) )
+            return;
+
+        _components.Remove( entity );
+
+        foreach ( var filter in Filters )
+        {
+            if ( filter.Entities.Contains( entity ) )
             {
-                if (_componentIndex.TryGetValue(type, out var index))
-                    index.Remove(entityId);
+                filter.Entities.Remove( entity );
+                filter.onRemove?.Invoke( entity, this );
             }
-            _components.Remove(entityId);
         }
 
-        _entities.Remove(entityId);
-        return true;
+        _entities.Remove( entity );
     }
 
-    /// <summary>
-    /// Check if an entity exists.
-    /// </summary>
-    public bool HasEntity(int entityId)
+    public bool Exists ( long entity )
+        => _entities.Contains( entity );
+
+    public string GetName ( long entity )
     {
-        return _entities.Contains(entityId);
+        if ( entity == 0 )
+            return "NULL";
+
+        if ( !Exists( entity ) )
+            return $"Non-Existent Entity-{entity}";
+
+        var name = Get< Name >( entity );
+        return name == null ? $"Unnamed Entity-{entity}" : $"{name.value}-{entity}";
     }
 
-    /// <summary>
-    /// Adds a component to an entity.
-    /// </summary>
-    public T AddComponent<T>(int entityId, T component) where T : Component
+    public string GetBasicName ( long entity )
     {
-        if (!_entities.Contains(entityId))
-            throw new InvalidOperationException($"Entity {entityId} does not exist");
+        if ( entity == 0 )
+            return "NULL";
 
-        var type = typeof(T);
-        component.EntityId = entityId;
-        _components[entityId][type] = component;
+        if ( !Exists( entity ) )
+            return "Non-Existent Entity";
 
-        // Update component index
-        if (!_componentIndex.TryGetValue(type, out var index))
+        var name = Get< Name >( entity );
+        return name?.value ?? "Entity";
+    }
+
+    public long Find ( string name )
+    {
+        foreach ( var entityId in _entities )
         {
-            index = new HashSet<int>();
-            _componentIndex[type] = index;
+            var nameComponent = Get< Name >( entityId );
+            if ( nameComponent != null && nameComponent.value == name )
+                return entityId;
         }
-        index.Add(entityId);
+
+        return 0;
+    }
+
+    #endregion
+
+    #region Components
+
+    public T Add< T > ( long entity ) where T : Component, new()
+    {
+        if ( Has< T >( entity ) )
+            return Get< T >( entity )!;
+
+        return Add( entity, new T() );
+    }
+
+    public Component Add ( long entity, Type type )
+    {
+        if ( Has( entity, type ) )
+            return Get( entity, type )!;
+
+        var component = ( Component )Activator.CreateInstance( type )!;
+        return Add( entity, component );
+    }
+
+    public T Add< T > ( long entity, T component ) where T : Component
+    {
+        var type = component.GetType();
+
+        if ( Has( entity, type ) )
+            Remove( entity, type );
+
+        _components[entity][type] = component;
+
+        foreach ( var filter in Filters )
+        {
+            if ( filter.Include.Contains( type ) )
+                UpdateFilterWithAdd( filter, entity );
+            else if ( filter.Exclude.Contains( type ) )
+                UpdateFilterWithRemove( filter, entity );
+
+            if ( component is Relation )
+            {
+                if ( filter.Relates.Any( r => r.RelationType == type ) )
+                    UpdateFilterWithAdd( filter, entity );
+                else if ( filter.NotRelates.Any( r => r.RelationType == type ) )
+                    UpdateFilterWithRemove( filter, entity );
+            }
+        }
 
         return component;
     }
 
-    /// <summary>
-    /// Removes a component from an entity.
-    /// </summary>
-    public bool RemoveComponent<T>(int entityId) where T : Component
+    public void Remove< T > ( long entity ) where T : Component
+        => Remove( entity, typeof( T ) );
+
+    public void Remove ( long entity, Type type )
     {
-        if (!_components.TryGetValue(entityId, out var entityComponents))
-            return false;
+        if ( !Has( entity, type ) )
+            return;
 
-        var type = typeof(T);
-        if (!entityComponents.Remove(type))
-            return false;
+        var component = Get( entity, type );
+        _components[entity].Remove( type );
 
-        if (_componentIndex.TryGetValue(type, out var index))
-            index.Remove(entityId);
-
-        return true;
-    }
-
-    /// <summary>
-    /// Gets a component from an entity.
-    /// </summary>
-    public T? GetComponent<T>(int entityId) where T : Component
-    {
-        if (!_components.TryGetValue(entityId, out var entityComponents))
-            return null;
-
-        if (entityComponents.TryGetValue(typeof(T), out var component))
-            return (T)component;
-
-        return null;
-    }
-
-    /// <summary>
-    /// Checks if an entity has a component.
-    /// </summary>
-    public bool HasComponent<T>(int entityId) where T : Component
-    {
-        if (!_components.TryGetValue(entityId, out var entityComponents))
-            return false;
-
-        return entityComponents.ContainsKey(typeof(T));
-    }
-
-    /// <summary>
-    /// Gets all entities that have the specified component type.
-    /// </summary>
-    public IEnumerable<int> GetEntitiesWithComponent<T>() where T : Component
-    {
-        if (_componentIndex.TryGetValue(typeof(T), out var index))
-            return index;
-
-        return Enumerable.Empty<int>();
-    }
-
-    /// <summary>
-    /// Gets all entities that have all specified component types.
-    /// </summary>
-    public IEnumerable<int> GetEntitiesWithComponents(params Type[] componentTypes)
-    {
-        if (componentTypes.Length == 0)
-            return _entities;
-
-        // Start with the smallest set for efficiency
-        HashSet<int>? smallest = null;
-        foreach (var type in componentTypes)
+        foreach ( var filter in Filters )
         {
-            if (!_componentIndex.TryGetValue(type, out var index))
-                return Enumerable.Empty<int>();
+            if ( filter.Include.Contains( type ) )
+                UpdateFilterWithRemove( filter, entity );
+            else if ( filter.Exclude.Contains( type ) )
+                UpdateFilterWithAdd( filter, entity );
 
-            if (smallest == null || index.Count < smallest.Count)
-                smallest = index;
-        }
-
-        if (smallest == null)
-            return Enumerable.Empty<int>();
-
-        // Filter to entities that have all components
-        return smallest.Where(entityId =>
-            componentTypes.All(type =>
-                _components.TryGetValue(entityId, out var components) &&
-                components.ContainsKey(type)));
-    }
-
-    /// <summary>
-    /// Creates a filter builder for querying entities.
-    /// </summary>
-    public FilterBuilder CreateFilter()
-    {
-        return new FilterBuilder(this);
-    }
-
-    /// <summary>
-    /// Gets all components of a specific type.
-    /// </summary>
-    public IEnumerable<T> GetAllComponents<T>() where T : Component
-    {
-        if (!_componentIndex.TryGetValue(typeof(T), out var index))
-            yield break;
-
-        foreach (var entityId in index)
-        {
-            if (_components.TryGetValue(entityId, out var entityComponents) &&
-                entityComponents.TryGetValue(typeof(T), out var component))
+            if ( component is Relation )
             {
-                yield return (T)component;
+                if ( filter.Relates.Any( r => r.RelationType == type ) )
+                    UpdateFilterWithRemove( filter, entity );
+                else if ( filter.NotRelates.Any( r => r.RelationType == type ) )
+                    UpdateFilterWithAdd( filter, entity );
             }
         }
     }
 
-    /// <summary>
-    /// Clears all entities and components from the world.
-    /// </summary>
-    public void Clear()
+    public bool Has< T > ( long entity ) where T : Component
+        => Has( entity, typeof( T ) );
+
+    public bool Has ( long entity, Type type )
     {
-        _entities.Clear();
-        _components.Clear();
-        _componentIndex.Clear();
-        _messageQueue.Clear();
-        _nextEntityId = 1;
+        if ( entity == 0 )
+            return false;
+
+        if ( !Exists( entity ) )
+        {
+            Console.WriteLine( $"Warning: Trying to find component ( {type} ) from entity that does not exist ( {entity} ) ( World {Id} )." );
+            return false;
+        }
+
+        return _components[entity].ContainsKey( type );
     }
+
+    public T? Get< T > ( long entity ) where T : Component
+        => ( T? )Get( entity, typeof( T ) );
+
+    public Component? Get( long entity, Type type )
+    {
+        if ( !Exists( entity ) )
+        {
+            Console.WriteLine( $"Warning: Trying to get component ( {type} ) from entity that does not exist ( {entity} ) ( World {Id} )." );
+            return null;
+        }
+
+        return _components[entity].TryGetValue( type, out var component ) ? component : null;
+    }
+
+    public bool TryGet< T > ( long entity, out T? component ) where T : Component
+    {
+        component = null;
+
+        if ( !Exists( entity ) )
+        {
+            Console.WriteLine( $"Warning: Trying to get component ( {typeof( T )} ) from entity that does not exist ( {entity} ) ( World {Id} )." );
+            return false;
+        }
+
+        if ( !Has< T >( entity ) )
+            return false;
+
+        component = Get< T >( entity );
+        return true;
+    }
+
+    public T GetOrAdd< T >( long entity ) where T : Component, new()
+    {
+        if ( !Has< T >( entity ) )
+            return Add< T >( entity );
+        return Get< T >( entity )!;
+    }
+
+    public Component GetOrAdd ( long entity, Type type )
+    {
+        if ( !Has( entity, type ) )
+            return Add( entity, type );
+        return Get( entity, type )!;
+    }
+
+    public List< Component > GetComponents ( long entity )
+    {
+        if ( !_components.TryGetValue( entity, out var entityComponents ) )
+            return new List< Component >();
+        return entityComponents.Values.ToList();
+    }
+
+    public IEnumerable< ( long entityId, T component ) > GetAll< T > () where T : Component
+    {
+        foreach ( var entityId in _entities )
+        {
+            if ( _components[entityId].TryGetValue( typeof( T ), out var component ) )
+                yield return ( entityId, ( T )component );
+        }
+    }
+
+    #endregion
+
+    #region Systems
+
+    public void Start ( ISystem system )
+    {
+        var type = system.GetType();
+        if ( !Systems.ContainsKey( type ) )
+            Systems[type] = new();
+
+        Systems[type].Add( system );
+        SystemOrder.Add( system );
+        system.StartSystem( this );
+
+        Console.WriteLine( $"Started { system }" );
+    }
+
+    public void Stop ( ISystem system )
+    {
+        var type = system.GetType();
+        SystemOrder.Remove( system );
+        Systems[type].Remove( system );
+
+        if ( Systems[type].Count == 0 )
+            Systems.Remove( type );
+
+        system.StopSystem( this );
+    }
+
+    public T Get< T > () where T : ISystem
+    {
+        var type = typeof( T );
+        return ( T )Systems[type][0];
+    }
+
+    public T GetService< T > () where T : IService
+    {
+        var type = typeof( T );
+        return ( T )Services[type];
+    }
+
+    #endregion
+
+    #region Services
+
+    public void Start< T > ( IService service ) where T : IService
+    {
+        var type = typeof( T );
+        if ( !type.IsInterface )
+            throw new InvalidOperationException( "Type parameter for Starting services must be an interface." );
+
+        if ( Services.ContainsKey( type ) )
+        {
+            Console.WriteLine( $"Warning: Started a new service of the same type {type.Name}. Stopping old service." );
+            Stop< T >();
+        }
+
+        Services[type] = service;
+        service.Start( this );
+    }
+
+    public void Stop< T > () where T : IService
+    {
+        var type = typeof( T );
+        Services[type].Stop( this );
+        Services.Remove( type );
+    }
+
+    #endregion
+
+    #region Relations
+
+    public T SetRelation< T > ( long fromEntity, long toEntity ) where T : Relation, new()
+        => SetRelation( fromEntity, toEntity, new T() );
+
+    public T SetRelation< T > ( long fromEntity, long toEntity, T relation ) where T : Relation, new()
+    {
+        if ( HasRelation< T >( fromEntity, toEntity ) )
+            return GetRelation< T >( fromEntity, toEntity )!;
+
+        T component;
+        if ( Has< T >( fromEntity ) )
+        {
+            component = Get< T >( fromEntity )!;
+            component.relation = toEntity;
+            _components[fromEntity][typeof( T )] = component;
+        }
+        else
+        {
+            relation.relation = toEntity;
+            component = Add( fromEntity, relation );
+        }
+
+        foreach ( var filter in Filters )
+        {
+            if ( filter.Relates.Any( r => r.RelationType == typeof( T ) ) )
+                UpdateFilterWithAdd( filter, fromEntity );
+            else if ( filter.NotRelates.Any( r => r.RelationType == typeof( T ) ) )
+                UpdateFilterWithRemove( filter, fromEntity );
+        }
+
+        return component;
+    }
+
+    public void RemoveRelation< T > ( long fromEntity, long toEntity ) where T : Relation
+    {
+        var relation = GetRelation< T >( fromEntity, toEntity );
+        if ( relation == null )
+            return;
+
+        Remove< T >( fromEntity );
+
+        foreach ( var filter in Filters )
+        {
+            if ( filter.Relates.Any( r => r.RelationType == typeof( T ) ) )
+                UpdateFilterWithRemove( filter, fromEntity );
+            else if ( filter.NotRelates.Any( r => r.RelationType == typeof( T ) ) )
+                UpdateFilterWithAdd( filter, fromEntity );
+        }
+    }
+
+    public bool HasRelation< T > ( long fromEntity, long toEntity ) where T : Relation
+    {
+        if ( TryGet< T >( fromEntity, out var relation ) && relation != null )
+            return relation.relation == toEntity;
+        return false;
+    }
+
+    public bool HasRelation ( long fromEntity, long toEntity, Type type )
+    {
+        if ( Get( fromEntity, type ) is Relation relation )
+            return relation.relation == toEntity;
+        return false;
+    }
+
+    public T? GetRelation< T > ( long fromEntity, long toEntity ) where T : Relation
+    {
+        var relation = Get< T >( fromEntity );
+        if ( relation != null && relation.relation != toEntity )
+            relation = null;
+        return relation;
+    }
+
+    public List< long > GetEntities< T > ( long entity ) where T : Relation
+        => GetRelations< T >( entity ).Keys.ToList();
+
+    public Dictionary< long, T > GetRelations< T > ( long entity ) where T : Relation
+    {
+        var results = new Dictionary< long, T >();
+
+        foreach ( var ( entityId, component ) in GetAll< T >() )
+        {
+            if ( !Exists( entityId ) )
+                continue;
+
+            if ( component.relation == entity )
+                results[entityId] = component;
+        }
+
+        return results;
+    }
+
+    public long GetRelated< T > ( long fromEntity ) where T : Relation
+    {
+        if ( !Has< T >( fromEntity ) )
+            return 0;
+
+        var relation = Get< T >( fromEntity );
+        if ( relation == null || !Exists( relation.relation ) )
+            return 0;
+
+        return relation.relation;
+    }
+
+    #endregion
+
+    #region Messages
+
+    public T Send< T > () where T : Message, new()
+        => Send( new T() );
+
+    public T Send< T > ( T message ) where T : Message
+    {
+        var type = message.GetType();
+        if ( !Messages.ContainsKey( type ) )
+            Messages[type] = new List< Message >();
+
+        Messages[type].Add( message );
+        return message;
+    }
+
+    public List< T > Read< T > () where T : Message
+        => Read( typeof( T ) ).Cast< T >().ToList();
+
+    public List< Message > Read ( Type messageType )
+    {
+        if ( !Messages.ContainsKey( messageType ) )
+            return new List< Message >();
+        return Messages[messageType];
+    }
+
+    public List< T > ReadOld< T > () where T : Message
+        => ReadOld( typeof( T ) ).Cast< T >().ToList();
+
+    public List< Message > ReadOld ( Type messageType )
+    {
+        if ( !OldMessages.ContainsKey( messageType ) )
+            return new List< Message >();
+        return OldMessages[messageType];
+    }
+
+    public T? ReadSingle< T > () where T : Message
+    {
+        var results = Read< T >();
+        return results.Count == 0 ? null : results[0];
+    }
+
+    public T? ReadSingleOld< T > () where T : Message
+    {
+        var results = ReadOld< T >();
+        return results.Count == 0 ? null : results[0];
+    }
+
+    public Message? ReadSingle ( Type type )
+    {
+        var results = Read( type );
+        return results.Count == 0 ? null : results[0];
+    }
+
+    public Message? ReadSingleOld ( Type type )
+    {
+        var results = ReadOld( type );
+        return results.Count == 0 ? null : results[0];
+    }
+
+    public void Destroy ( Message message )
+    {
+        var type = message.GetType();
+        if ( !Messages.ContainsKey( type ) )
+            return;
+
+        if ( Messages[type].Contains( message ) )
+            Messages[type].Remove( message );
+    }
+
+    #endregion
+
+    #region Filters
+
+    public void Start ( Filter filter )
+    {
+        if ( filter.IsBeingModified )
+            throw new InvalidOperationException( "Filter is being recursively modified! This is not allowed." );
+
+        filter.IsBeingModified = true;
+
+        Filters.Add( filter );
+
+        filter.Entities = new HashSet< long >(
+            _entities.Where( entity => filter.Matches( entity, this ) )
+         );
+
+        foreach ( var entity in filter.Entities )
+            filter.onAdd?.Invoke( entity, this );
+
+        filter.IsBeingModified = false;
+    }
+
+    public void Stop ( Filter filter )
+    {
+        if ( filter.IsBeingModified )
+            throw new InvalidOperationException( "Filter is being recursively modified! This is not allowed." );
+
+        filter.IsBeingModified = true;
+
+        foreach ( var entity in filter.Entities )
+            filter.onRemove?.Invoke( entity, this );
+
+        filter.Entities.Clear();
+        Filters.Remove( filter );
+
+        filter.IsBeingModified = false;
+    }
+
+    public void GetEntitiesNonAlloc ( FilterBuilder filterBuilder, HashSet< long > results )
+    {
+        foreach ( var entity in _entities )
+        {
+            if ( filterBuilder.Matches( entity, this ) )
+                results.Add( entity );
+        }
+    }
+
+    public void GetEntitiesNonAlloc ( FilterBuilder filterBuilder, List< long > results )
+    {
+        foreach ( var entity in _entities )
+        {
+            if ( filterBuilder.Matches( entity, this ) )
+                results.Add( entity );
+        }
+    }
+
+    public long GetSingleEntity ( FilterBuilder filterBuilder )
+    {
+        _getSingleEntityCache.Clear();
+        GetEntitiesNonAlloc( filterBuilder, _getSingleEntityCache );
+
+        return _getSingleEntityCache.FirstOrDefault();
+    }
+
+    public void Tick ()
+    {
+        // Tick Systems
+        var systemListCopy = SystemOrder.ToArray();
+        foreach ( var system in systemListCopy )
+            system.TickSystem( this );
+
+        // Move messages to old messages
+        OldMessages.Clear();
+        foreach ( var kvp in Messages )
+            OldMessages.Add( kvp.Key, kvp.Value );
+
+        // Clear messages
+        Messages.Clear();
+    }
+
+    private void UpdateFilterWithAdd ( Filter filter, long addedEntity )
+    {
+        if ( filter.Entities.Contains( addedEntity ) )
+            return;
+
+        if ( !filter.Matches( addedEntity, this ) )
+            return;
+
+        if ( filter.IsBeingModified )
+            throw new InvalidOperationException( "Filter is being recursively modified! This is not allowed." );
+
+        filter.IsBeingModified = true;
+
+        filter.Entities.Add( addedEntity );
+        filter.onAdd?.Invoke( addedEntity, this );
+
+        filter.IsBeingModified = false;
+    }
+
+    private void UpdateFilterWithRemove ( Filter filter, long removedEntity )
+    {
+        if ( !filter.Entities.Contains( removedEntity ) )
+            return;
+
+        if ( filter.Matches( removedEntity, this ) )
+            return;
+
+        if ( filter.IsBeingModified )
+            throw new InvalidOperationException( "Filter is being recursively modified! This is not allowed." );
+
+        filter.IsBeingModified = true;
+
+        filter.Entities.Remove( removedEntity );
+        filter.onRemove?.Invoke( removedEntity, this );
+
+        filter.IsBeingModified = false;
+    }
+
+    public List< long > GetEntities ()
+        => _entities.ToList();
+
+    #endregion
 }

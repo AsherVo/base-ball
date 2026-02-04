@@ -12,16 +12,17 @@ This project is undergoing a migration from Node.js to C# with an ECS architectu
 - Updated `public/js/network.js` to use SignalR client
 - Updated HTML files to reference SignalR JS client
 
-### Phase 1: Core ECS Framework ✅ Complete
-- Entity struct with ID wrapper
-- Component base class for data containers
-- Relation base class for entity references
-- World class with in-memory Dictionary storage
-- Filter and FilterBuilder for entity queries
-- ISystem interface and SystemBase class
-- WorldManipulator for systems that modify world structure
-- Message queue system for cross-system events
-- SystemRunner for orchestrating system execution
+### Phase 1: Core ECS Framework ✅ Complete (Net City Pattern)
+- Component base class with `Create()` factory, `ApplyParameters()`, `Clone()`
+- Relation base class with `relation` field for entity references
+- Message base class with implicit bool operator and auto `ToString()`
+- World class with in-memory storage, system/filter/message management
+- Filter class with `onAdd`/`onRemove` callbacks, `IsBeingModified` guard
+- FilterBuilder with fluent API: `Include<T>()`, `Exclude<T>()`, `Related<T>()`, `NotRelated<T>()`
+- ISystem interface with `StartSystem()`, `StopSystem()`, `TickSystem()`
+- IService interface for injectable services
+- WorldManipulator base class wrapping World methods as protected
+- Name component for entity naming
 
 ### Remaining Phases
 - Phase 2: All Components (pending)

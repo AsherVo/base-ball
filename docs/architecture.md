@@ -21,16 +21,18 @@ ASP.NET Core serves static files from `/public` and `/shared` directories. Signa
 server/
 ├── Program.cs              # ASP.NET Core setup, static files, SignalR hub
 ├── ECS/
-│   ├── Core/               # ECS framework
-│   │   ├── Entity.cs       # Entity ID wrapper struct
-│   │   ├── Component.cs    # Base class for data components
-│   │   ├── Relation.cs     # Base class for entity references
-│   │   ├── World.cs        # In-memory entity/component storage
-│   │   ├── Filter.cs       # Entity query system
-│   │   ├── System.cs       # ISystem, SystemBase, WorldManipulator
-│   │   ├── Message.cs      # Cross-system event messaging
-│   │   └── SystemRunner.cs # System execution orchestrator
-│   ├── Components/         # Data-only component classes (pending)
+│   ├── Core/               # ECS framework (matches Net City pattern)
+│   │   ├── Component.cs    # Base class with Create(), ApplyParameters(), Clone()
+│   │   ├── Relation.cs     # Base class for entity references (has relation field)
+│   │   ├── Message.cs      # Base class with implicit bool, auto ToString()
+│   │   ├── World.cs        # In-memory entity/component storage, systems, filters
+│   │   ├── Filter.cs       # Entity query with onAdd/onRemove callbacks
+│   │   ├── FilterBuilder.cs # Fluent API with Include/Exclude/Related/NotRelated
+│   │   ├── ISystem.cs      # StartSystem, StopSystem, TickSystem interface
+│   │   ├── IService.cs     # Start, Stop interface for services
+│   │   └── WorldManipulator.cs # Base class wrapping World for systems
+│   ├── Components/         # Data-only component classes
+│   │   └── Name.cs         # Entity naming component
 │   ├── Systems/            # Game logic systems (pending)
 │   └── Messages/           # Event message types (pending)
 ├── Network/
@@ -40,14 +42,18 @@ server/
 └── Setup/                  # Map generation, entity factory (pending)
 ```
 
-### ECS Architecture
+### ECS Architecture (Net City Pattern)
 
-The server uses an Entity Component System pattern:
+The server uses an Entity Component System pattern matching Net City's architecture:
 
-- **Entities**: Integer IDs stored in a HashSet
-- **Components**: Data-only classes stored in Dictionary<int, Dictionary<Type, Component>>
-- **Systems**: Logic classes that query entities by component and update state
-- **Messages**: Events emitted by systems for cross-system communication
+- **Entities**: Long IDs stored in HashSet, 0 represents null/invalid
+- **Components**: Data-only classes with `Create()` factory, `ApplyParameters()`, `Clone()`
+- **Relations**: Components that link entities via `relation` field pointing to target entity
+- **Systems**: Implement `ISystem` with `StartSystem()`, `StopSystem()`, `TickSystem()`
+- **WorldManipulator**: Base class for systems providing protected access to World methods
+- **Messages**: Events with implicit bool operator, auto-generated `ToString()`
+- **Filters**: Query entities by Include/Exclude components and Related/NotRelated relations
+- **Services**: Injectable services registered by interface type
 
 ### State Management
 
