@@ -99,12 +99,15 @@ public class GameHub : Hub
             return;
         }
 
-        await Clients.Caller.SendAsync("roomCreated", room.GetRoomInfo());
+        var roomInfo = room.GetRoomInfo();
+        roomInfo["playerId"] = Context.ConnectionId;
+
+        await Clients.Caller.SendAsync("roomCreated", roomInfo);
         // Also send roomJoined so client enters the room view
-        await Clients.Caller.SendAsync("roomJoined", room.GetRoomInfo());
+        await Clients.Caller.SendAsync("roomJoined", roomInfo);
 
         // AI is already added and ready, so notify match ready with players list
-        await Clients.Caller.SendAsync("matchReady", room.GetRoomInfo());
+        await Clients.Caller.SendAsync("matchReady", roomInfo);
     }
 
     /// <summary>

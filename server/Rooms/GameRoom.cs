@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using server.AI;
 using server.ECS;
+using server.ECS.Components.Core;
 using server.ECS.Messages;
 using server.ECS.Systems.Command;
 using server.ECS.Systems.Movement;
@@ -168,6 +169,18 @@ public class GameRoom
             {
                 _playerStates.Remove(oldConnectionId);
                 _playerStates[newConnectionId] = playerState;
+            }
+
+            // Update all entity ownership from old connection ID to new connection ID
+            if (_world != null)
+            {
+                foreach (var (entity, ownership) in _world.GetAll<Ownership>())
+                {
+                    if (ownership.ownerId == oldConnectionId)
+                    {
+                        ownership.ownerId = newConnectionId;
+                    }
+                }
             }
         }
 
