@@ -8,7 +8,8 @@ This project is undergoing a migration from Node.js to C# with an ECS architectu
 - Deleted Node.js server directory
 - Created C# ASP.NET Core project in `server/`
 - Configured SignalR for WebSocket communication
-- Set up static file serving for `public/` and `shared/`
+- Set up static file serving for `public/`
+- Added `/api/config` endpoint serving game constants and entity definitions
 - Updated `public/js/network.js` to use SignalR client
 - Updated HTML files to reference SignalR JS client
 

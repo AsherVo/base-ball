@@ -8,34 +8,36 @@ Base Ball is a browser-based RTS multiplayer game designed for real-time two-pla
 
 ## Commands
 
-- **Start server:** `npm start` (runs on port 3000)
+- **Start server:** `dotnet run --project server` (runs on port 3000)
 
-No test framework, linting, or build tools are currently configured.
+No test framework or linting currently configured.
 
 ## Architecture
 
-Browser-based multiplayer game using Express and Socket.io for real-time communication.
+Browser-based multiplayer game using ASP.NET Core and SignalR for real-time communication.
 
 ### Structure
 
 ```
-server/           # Node.js backend
-  index.js        # Express + Socket.io server setup
-  handlers/       # Socket event handlers (room management, matchmaking)
+server/           # C# ASP.NET Core backend
+  Program.cs      # Server entry point, /api/config endpoint
+  Setup/          # GameConstants.cs, EntityDefinitions.cs (source of truth)
+  Hubs/           # SignalR hubs for real-time communication
+  Rooms/          # Game room and matchmaking logic
 public/           # Frontend (served as static files)
-  js/network.js   # Socket.io client wrapper (NetworkClient class)
+  js/config.js    # Fetches game constants from /api/config
+  js/ui-constants.js # Client-only UI constants (camera, colors)
+  js/network.js   # SignalR client wrapper (NetworkClient class)
   js/lobby.js     # Lobby UI logic
-  js/game.js      # Game client (canvas-based, stub implementation)
-shared/           # Code shared between client and server
-  constants.js    # TICK_RATE, MAX_PLAYERS_PER_ROOM, DEFAULT_PORT
+  js/game.js      # Game client (canvas-based)
 ```
 
 ### Key Patterns
 
-- **State management:** In-memory Maps on server (`rooms`, `players`, `waitingQueue`)
+- **Configuration:** Game constants defined in C# (`GameConstants.cs`, `EntityDefinitions.cs`), served via `/api/config`, fetched by client at startup
+- **State management:** In-memory dictionaries on server for rooms, players, matchmaking queue
 - **Matchmaking:** Three modes - create room, join by ID, quick match (auto-pairing queue)
 - **Client-server flow:** Lobby page handles matchmaking, then redirects to game page with session data in sessionStorage
-- **Shared code:** `shared/constants.js` uses UMD pattern for Node.js and browser compatibility
 
 ### Git
 You can read from git, but never commit or make changes to the git state.

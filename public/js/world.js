@@ -2,20 +2,23 @@
 // Handles the map grid and all actors within it
 
 (function() {
-  // Get dependencies based on environment
+  // Get dependencies based on environment (lazy for browser to support async config loading)
   const isNode = typeof module !== 'undefined' && module.exports;
-  const _CONSTANTS = isNode ? require('./constants') : window.CONSTANTS;
-  const _Actor = isNode ? require('./actor') : window.Actor;
-  const _EntityDefs = isNode ? require('./entityDefs').EntityDefs : window.EntityDefs;
+  const getConstants = () => isNode ? require('./constants') : window.CONSTANTS;
+  const getActor = () => isNode ? require('./actor') : window.Actor;
+  const getEntityDefs = () => isNode ? require('./entityDefs').EntityDefs : window.EntityDefs;
 
   class World {
-    constructor(width = _CONSTANTS.MAP_WIDTH, height = _CONSTANTS.MAP_HEIGHT) {
+    constructor(width, height) {
+      const _CONSTANTS = getConstants();
+      width = width ?? _CONSTANTS.MAP_WIDTH;
+      height = height ?? _CONSTANTS.MAP_HEIGHT;
       this.width = width;   // Map width in tiles
       this.height = height; // Map height in tiles
       this.actors = new Map();
       this.nextActorId = 1;
       this.players = new Map(); // playerId -> playerIndex (0 or 1)
-      this.entityDefs = _EntityDefs;
+      this.entityDefs = getEntityDefs();
     }
 
     // Add a player to the world
@@ -36,7 +39,7 @@
     // Create a new actor and add it to the world
     createActor(x, y, sprite) {
       const id = this.nextActorId++;
-      const actor = new _Actor(id, x, y, sprite);
+      const actor = new (getActor())(id, x, y, sprite);
       this.actors.set(id, actor);
       return actor;
     }
@@ -175,7 +178,7 @@
 
       // Restore actors
       data.actors.forEach(actorData => {
-        const actor = _Actor.fromJSON(actorData);
+        const actor = getActor().fromJSON(actorData);
         world.actors.set(actor.id, actor);
       });
 

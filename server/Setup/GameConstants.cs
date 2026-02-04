@@ -40,4 +40,13 @@ public static class GameConstants
 
     // Countdown
     public const int COUNTDOWN_SECONDS = 3;
+
+    // Game balance - Ranges
+    public const int GATHER_RANGE = 40;
+    public const int BUILD_RANGE = 60;
+    public const int PUSH_RANGE = 80;
+
+    // Fog of war settings
+    public const int FOG_TILE_SIZE = 32;
+    public const int DEFAULT_VISION_RADIUS = 200;
 }

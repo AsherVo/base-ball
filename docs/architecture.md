@@ -13,7 +13,7 @@
 
 ## Server (C# ECS)
 
-ASP.NET Core serves static files from `/public` and `/shared` directories. SignalR handles all real-time game communication over WebSockets.
+ASP.NET Core serves static files from `/public` and exposes `/api/config` for game constants and entity definitions. SignalR handles all real-time game communication over WebSockets.
 
 ### Directory Structure
 
@@ -136,20 +136,33 @@ The NetworkClient class wraps SignalR to provide a clean API for game-specific o
 - Display UI (resources, unit info, build menu, game over)
 - Calculate and render fog of war based on player's unit vision
 
-## Shared Code
+## Configuration
 
-The `shared/` directory contains code used by both client and server. All files use a UMD-style export pattern to work in both Node.js (CommonJS) and browser (global variable) environments.
+Game constants and entity definitions are defined server-side and served to the client via API.
 
-### Files
+### Server-Side (Source of Truth)
 
 | File | Purpose |
 |------|---------|
-| `constants.js` | Game configuration (tick rate, map size, balance values) |
-| `actor.js` | Actor class with all entity properties (health, attack, speed, etc.) |
-| `world.js` | World class managing map, actors, and queries |
-| `commands.js` | Command type definitions and factory functions |
-| `entityDefs.js` | Stats for all units, buildings, and resources |
-| `playerState.js` | Player resource and supply tracking |
+| `Setup/GameConstants.cs` | Game configuration (tick rate, map size, physics, balance values) |
+| `Setup/EntityDefinitions.cs` | Stats for all units, buildings, resources, and special entities |
+
+### API Endpoint
+
+`GET /api/config` returns JSON with:
+- `constants` - Game logic constants (map dimensions, tick rate, ranges, etc.)
+- `entityDefs` - Unit, building, resource, and special entity definitions
+
+### Client-Side
+
+| File | Purpose |
+|------|---------|
+| `js/config.js` | Fetches `/api/config` and sets `window.CONSTANTS` and `window.EntityDefs` |
+| `js/ui-constants.js` | Client-only UI constants (camera, minimap, colors) - not shared with server |
+| `js/actor.js` | Actor class with all entity properties (health, attack, speed, etc.) |
+| `js/world.js` | World class managing map, actors, and queries (client-side representation) |
+| `js/commands.js` | Command type definitions and factory functions |
+| `js/playerState.js` | Player resource and supply tracking |
 
 ### World System
 

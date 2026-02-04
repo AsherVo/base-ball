@@ -1,5 +1,7 @@
 // Game client - handles rendering and player input
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Wait for config to load from server
+  await window.configReady;
   // Get room info from session storage
   const roomId = sessionStorage.getItem('roomId');
   const playerName = sessionStorage.getItem('playerName');
@@ -264,9 +266,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle zoom with +/- keys
     if (e.key === '=' || e.key === '+') {
-      zoomCamera(CONSTANTS.CAMERA_ZOOM_SPEED);
+      zoomCamera(UI.CAMERA_ZOOM_SPEED);
     } else if (e.key === '-' || e.key === '_') {
-      zoomCamera(-CONSTANTS.CAMERA_ZOOM_SPEED);
+      zoomCamera(-UI.CAMERA_ZOOM_SPEED);
     }
 
     // Escape key - close building interaction panel
@@ -322,14 +324,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const mouseY = e.clientY - rect.top;
 
     if (e.ctrlKey) {
-      const zoomDelta = e.deltaY > 0 ? -CONSTANTS.CAMERA_ZOOM_SPEED * 0.5 : CONSTANTS.CAMERA_ZOOM_SPEED * 0.5;
+      const zoomDelta = e.deltaY > 0 ? -UI.CAMERA_ZOOM_SPEED * 0.5 : UI.CAMERA_ZOOM_SPEED * 0.5;
       zoomCameraAt(zoomDelta, mouseX, mouseY);
     } else if (isTrackpadScroll(e)) {
       cameraX += e.deltaX / cameraZoom;
       cameraY += e.deltaY / cameraZoom;
       clampCamera();
     } else {
-      const zoomDelta = e.deltaY > 0 ? -CONSTANTS.CAMERA_ZOOM_SPEED : CONSTANTS.CAMERA_ZOOM_SPEED;
+      const zoomDelta = e.deltaY > 0 ? -UI.CAMERA_ZOOM_SPEED : UI.CAMERA_ZOOM_SPEED;
       zoomCameraAt(zoomDelta, mouseX, mouseY);
     }
   }, { passive: false });
@@ -720,10 +722,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // Minimap helpers
   function getMinimapBounds() {
     return {
-      x: CONSTANTS.MINIMAP_PADDING,
-      y: canvas.height - CONSTANTS.MINIMAP_HEIGHT - CONSTANTS.MINIMAP_PADDING - 20,
-      width: CONSTANTS.MINIMAP_WIDTH,
-      height: CONSTANTS.MINIMAP_HEIGHT
+      x: UI.MINIMAP_PADDING,
+      y: canvas.height - UI.MINIMAP_HEIGHT - UI.MINIMAP_PADDING - 20,
+      width: UI.MINIMAP_WIDTH,
+      height: UI.MINIMAP_HEIGHT
     };
   }
 
@@ -759,7 +761,7 @@ document.addEventListener('DOMContentLoaded', () => {
     playersList.innerHTML = '';
     players.forEach((player, index) => {
       const li = document.createElement('li');
-      const color = CONSTANTS.TEAM_COLORS[index] || '#fff';
+      const color = UI.TEAM_COLORS[index] || '#fff';
       li.innerHTML = `<span style="color: ${color};">\u25CF</span> ${player.name}`;
       playersList.appendChild(li);
     });
@@ -873,6 +875,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function gameLoop(timestamp) {
     if (!gameRunning) return;
+
+    // Ensure config is loaded before running game logic
+    if (!window.CONSTANTS) {
+      requestAnimationFrame(gameLoop);
+      return;
+    }
 
     const deltaTime = (timestamp - lastFrameTime) / 1000;
     lastFrameTime = timestamp;
@@ -1121,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const endTileX = Math.ceil((cameraX + viewWidth) / fogTileSize);
     const endTileY = Math.ceil((cameraY + viewHeight) / fogTileSize);
 
-    ctx.fillStyle = CONSTANTS.FOG_COLOR;
+    ctx.fillStyle = UI.FOG_COLOR;
 
     for (let ty = startTileY; ty <= endTileY && ty < fogGridHeight; ty++) {
       for (let tx = startTileX; tx <= endTileX && tx < fogGridWidth; tx++) {
@@ -1259,7 +1267,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const leftGoalScreenY = (goalTop - cameraY) * cameraZoom;
     ctx.fillStyle = 'rgba(74, 144, 217, 0.3)';
     ctx.fillRect(leftGoalScreenX, leftGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
-    ctx.strokeStyle = CONSTANTS.TEAM_COLORS[0];
+    ctx.strokeStyle = UI.TEAM_COLORS[0];
     ctx.lineWidth = 3;
     ctx.strokeRect(leftGoalScreenX, leftGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
 
@@ -1268,7 +1276,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rightGoalScreenY = (goalTop - cameraY) * cameraZoom;
     ctx.fillStyle = 'rgba(217, 74, 74, 0.3)';
     ctx.fillRect(rightGoalScreenX, rightGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
-    ctx.strokeStyle = CONSTANTS.TEAM_COLORS[1];
+    ctx.strokeStyle = UI.TEAM_COLORS[1];
     ctx.lineWidth = 3;
     ctx.strokeRect(rightGoalScreenX, rightGoalScreenY, goalWidth * cameraZoom, goalHeight * cameraZoom);
   }
@@ -1316,7 +1324,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const isSelected = selectedActors.some(a => a.id === actor.id);
     const playerIndex = world.getPlayerIndex(actor.ownerId);
-    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+    const color = playerIndex != null ? UI.TEAM_COLORS[playerIndex] : '#888';
 
     // Selection indicator
     if (isSelected) {
@@ -1389,7 +1397,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const playerIndex = world.getPlayerIndex(actor.ownerId);
-    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+    const color = playerIndex != null ? UI.TEAM_COLORS[playerIndex] : '#888';
 
     // Highlight my avatar with a glow
     if (isMyAvatar) {
@@ -1449,7 +1457,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function drawCarriedUnit(screenX, screenY, unit) {
     const radius = (unit.radius || 16) * cameraZoom * 0.7; // Slightly smaller
     const playerIndex = world.getPlayerIndex(unit.ownerId);
-    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+    const color = playerIndex != null ? UI.TEAM_COLORS[playerIndex] : '#888';
 
     // Draw floating effect
     ctx.fillStyle = 'rgba(74, 255, 74, 0.3)';
@@ -1488,7 +1496,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const isSelected = selectedActors.some(a => a.id === actor.id);
     const playerIndex = world.getPlayerIndex(actor.ownerId);
-    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+    const color = playerIndex != null ? UI.TEAM_COLORS[playerIndex] : '#888';
 
     // Selection indicator
     if (isSelected) {
@@ -1705,10 +1713,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function drawMinimap() {
-    const minimapW = CONSTANTS.MINIMAP_WIDTH;
-    const minimapH = CONSTANTS.MINIMAP_HEIGHT;
-    const padding = CONSTANTS.MINIMAP_PADDING;
-    const borderWidth = CONSTANTS.MINIMAP_BORDER_WIDTH;
+    const minimapW = UI.MINIMAP_WIDTH;
+    const minimapH = UI.MINIMAP_HEIGHT;
+    const padding = UI.MINIMAP_PADDING;
+    const borderWidth = UI.MINIMAP_BORDER_WIDTH;
 
     const minimapX = padding;
     const minimapY = canvas.height - minimapH - padding - 20;
@@ -1797,10 +1805,10 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (actor.type === 'avatar') {
         dotRadius = 6;
         const playerIndex = world.getPlayerIndex(actor.ownerId);
-        color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+        color = playerIndex != null ? UI.TEAM_COLORS[playerIndex] : '#888';
       } else {
         const playerIndex = world.getPlayerIndex(actor.ownerId);
-        color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+        color = playerIndex != null ? UI.TEAM_COLORS[playerIndex] : '#888';
         if (actor.type === 'building') dotRadius = 5;
       }
 
@@ -1858,8 +1866,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Camera helpers
   function zoomCamera(delta) {
     const oldZoom = cameraZoom;
-    cameraZoom = Math.max(CONSTANTS.CAMERA_ZOOM_MIN,
-                          Math.min(CONSTANTS.CAMERA_ZOOM_MAX, cameraZoom + delta));
+    cameraZoom = Math.max(UI.CAMERA_ZOOM_MIN,
+                          Math.min(UI.CAMERA_ZOOM_MAX, cameraZoom + delta));
     return oldZoom !== cameraZoom;
   }
 
