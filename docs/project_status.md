@@ -1,6 +1,45 @@
 # Project Status
 
-This project is now a functional RTS game prototype with all core mechanics implemented.
+This project is undergoing a migration from Node.js to C# with an ECS architecture.
+
+## Migration Status
+
+### Phase 0: Project Setup ✅ Complete
+- Deleted Node.js server directory
+- Created C# ASP.NET Core project in `server/`
+- Configured SignalR for WebSocket communication
+- Set up static file serving for `public/` and `shared/`
+- Updated `public/js/network.js` to use SignalR client
+- Updated HTML files to reference SignalR JS client
+
+### Phase 1: Core ECS Framework ✅ Complete
+- Entity struct with ID wrapper
+- Component base class for data containers
+- Relation base class for entity references
+- World class with in-memory Dictionary storage
+- Filter and FilterBuilder for entity queries
+- ISystem interface and SystemBase class
+- WorldManipulator for systems that modify world structure
+- Message queue system for cross-system events
+- SystemRunner for orchestrating system execution
+
+### Remaining Phases
+- Phase 2: All Components (pending)
+- Phase 3: Movement & Physics Systems (pending)
+- Phase 4: Collision Systems (pending)
+- Phase 5: Combat Systems (pending)
+- Phase 6: Economy Systems (pending)
+- Phase 7: Avatar & Win Systems (pending)
+- Phase 8: Networking (pending)
+- Phase 9: Room Management (pending)
+- Phase 10: AI & Map Generation (pending)
+- Phase 11: Integration Testing (pending)
+
+---
+
+## Previous Implementation (Node.js - Being Replaced)
+
+This project was a functional RTS game prototype with all core mechanics implemented.
 
 ## What Works
 

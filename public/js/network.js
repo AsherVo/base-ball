@@ -1,48 +1,60 @@
-// Socket.io client wrapper
+// SignalR client wrapper
 class NetworkClient {
   constructor() {
-    this.socket = null;
+    this.connection = null;
     this.connected = false;
     this.handlers = {};
   }
 
   connect() {
     return new Promise((resolve, reject) => {
-      this.socket = io();
+      this.connection = new signalR.HubConnectionBuilder()
+        .withUrl("/game")
+        .withAutomaticReconnect()
+        .build();
 
-      this.socket.on('connect', () => {
-        this.connected = true;
-        console.log('Connected to server');
-        resolve();
-      });
+      // Register server event handlers
+      this.connection.on('roomCreated', (data) => this.trigger('roomCreated', data));
+      this.connection.on('roomJoined', (data) => this.trigger('roomJoined', data));
+      this.connection.on('playerJoined', (data) => this.trigger('playerJoined', data));
+      this.connection.on('playerLeft', (data) => this.trigger('playerLeft', data));
+      this.connection.on('matchReady', (data) => this.trigger('matchReady', data));
+      this.connection.on('waitingForMatch', (data) => this.trigger('waitingForMatch', data));
+      this.connection.on('readyUpdate', (data) => this.trigger('readyUpdate', data));
+      this.connection.on('countdown', (data) => this.trigger('countdown', data));
+      this.connection.on('countdownCanceled', (data) => this.trigger('countdownCanceled', data));
+      this.connection.on('gameStart', (data) => this.trigger('gameStart', data));
+      this.connection.on('gameState', (data) => this.trigger('gameState', data));
+      this.connection.on('attackEvent', (data) => this.trigger('attackEvent', data));
+      this.connection.on('actorDeath', (data) => this.trigger('actorDeath', data));
+      this.connection.on('gameOver', (data) => this.trigger('gameOver', data));
+      this.connection.on('error', (data) => this.trigger('error', data));
 
-      this.socket.on('disconnect', () => {
+      this.connection.onclose(() => {
         this.connected = false;
         console.log('Disconnected from server');
         this.trigger('disconnected');
       });
 
-      this.socket.on('connect_error', (err) => {
-        console.error('Connection error:', err);
-        reject(err);
+      this.connection.onreconnecting(() => {
+        console.log('Reconnecting to server...');
       });
 
-      // Register server event handlers
-      this.socket.on('roomCreated', (data) => this.trigger('roomCreated', data));
-      this.socket.on('roomJoined', (data) => this.trigger('roomJoined', data));
-      this.socket.on('playerJoined', (data) => this.trigger('playerJoined', data));
-      this.socket.on('playerLeft', (data) => this.trigger('playerLeft', data));
-      this.socket.on('matchReady', (data) => this.trigger('matchReady', data));
-      this.socket.on('waitingForMatch', (data) => this.trigger('waitingForMatch', data));
-      this.socket.on('readyUpdate', (data) => this.trigger('readyUpdate', data));
-      this.socket.on('countdown', (data) => this.trigger('countdown', data));
-      this.socket.on('countdownCanceled', (data) => this.trigger('countdownCanceled', data));
-      this.socket.on('gameStart', (data) => this.trigger('gameStart', data));
-      this.socket.on('gameState', (data) => this.trigger('gameState', data));
-      this.socket.on('attackEvent', (data) => this.trigger('attackEvent', data));
-      this.socket.on('actorDeath', (data) => this.trigger('actorDeath', data));
-      this.socket.on('gameOver', (data) => this.trigger('gameOver', data));
-      this.socket.on('error', (data) => this.trigger('error', data));
+      this.connection.onreconnected(() => {
+        console.log('Reconnected to server');
+        this.connected = true;
+      });
+
+      this.connection.start()
+        .then(() => {
+          this.connected = true;
+          console.log('Connected to server');
+          resolve();
+        })
+        .catch((err) => {
+          console.error('Connection error:', err);
+          reject(err);
+        });
     });
   }
 
@@ -68,41 +80,41 @@ class NetworkClient {
 
   // Player actions
   setName(name) {
-    this.socket.emit('setName', name);
+    this.connection.invoke('SetName', name);
   }
 
   createRoom() {
-    this.socket.emit('createRoom');
+    this.connection.invoke('CreateRoom');
   }
 
   createRoomWithAI(aiType = 'normal') {
-    this.socket.emit('createRoomWithAI', { aiType });
+    this.connection.invoke('CreateRoomWithAI', { aiType });
   }
 
   joinRoom(roomId) {
-    this.socket.emit('joinRoom', roomId);
+    this.connection.invoke('JoinRoom', roomId);
   }
 
   leaveRoom() {
-    this.socket.emit('leaveRoom');
+    this.connection.invoke('LeaveRoom');
   }
 
   quickMatch() {
-    this.socket.emit('quickMatch');
+    this.connection.invoke('QuickMatch');
   }
 
   playerReady() {
-    this.socket.emit('playerReady');
+    this.connection.invoke('PlayerReady');
   }
 
   // Send a player command to the server
   sendCommand(command) {
-    this.socket.emit('playerCommand', command);
+    this.connection.invoke('PlayerCommand', command);
   }
 
-  // Generic emit for future game events
+  // Generic invoke for future game events
   emit(event, data) {
-    this.socket.emit(event, data);
+    this.connection.invoke(event, data);
   }
 }
 

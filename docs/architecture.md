@@ -4,50 +4,69 @@
 
 | Layer | Technology |
 |-------|------------|
-| Server Runtime | Node.js |
-| Web Framework | Express 4.x |
-| Real-time Communication | Socket.io 4.x |
+| Server Runtime | .NET 10 / ASP.NET Core |
+| Real-time Communication | SignalR |
+| Architecture | Entity Component System (ECS) |
 | Frontend | Vanilla JavaScript (ES6+) |
 | Rendering | HTML5 Canvas 2D API |
 | Styling | Custom CSS |
 
-## Server
+## Server (C# ECS)
 
-Express serves static files from `/public` and `/shared` directories. Socket.io handles all real-time game communication over WebSockets.
+ASP.NET Core serves static files from `/public` and `/shared` directories. SignalR handles all real-time game communication over WebSockets.
 
 ### Directory Structure
 
 ```
 server/
-  index.js              # Express + Socket.io server setup
-  handlers/
-    socketHandlers.js   # Socket event handlers, room management, game start
-  game/
-    GameLoop.js         # Server-side game simulation (60 ticks/sec)
-    MapGenerator.js     # Initial map generation with symmetric placement
-    AIPlayer.js         # AI opponent logic (economy, building, combat)
+├── Program.cs              # ASP.NET Core setup, static files, SignalR hub
+├── ECS/
+│   ├── Core/               # ECS framework
+│   │   ├── Entity.cs       # Entity ID wrapper struct
+│   │   ├── Component.cs    # Base class for data components
+│   │   ├── Relation.cs     # Base class for entity references
+│   │   ├── World.cs        # In-memory entity/component storage
+│   │   ├── Filter.cs       # Entity query system
+│   │   ├── System.cs       # ISystem, SystemBase, WorldManipulator
+│   │   ├── Message.cs      # Cross-system event messaging
+│   │   └── SystemRunner.cs # System execution orchestrator
+│   ├── Components/         # Data-only component classes (pending)
+│   ├── Systems/            # Game logic systems (pending)
+│   └── Messages/           # Event message types (pending)
+├── Network/
+│   └── GameHub.cs          # SignalR hub (placeholder)
+├── Rooms/                  # Room management (pending)
+├── AI/                     # AI opponent (pending)
+└── Setup/                  # Map generation, entity factory (pending)
 ```
+
+### ECS Architecture
+
+The server uses an Entity Component System pattern:
+
+- **Entities**: Integer IDs stored in a HashSet
+- **Components**: Data-only classes stored in Dictionary<int, Dictionary<Type, Component>>
+- **Systems**: Logic classes that query entities by component and update state
+- **Messages**: Events emitted by systems for cross-system communication
 
 ### State Management
 
-State is managed in-memory using several data structures:
-
-- `rooms` Map - Active game rooms with player lists, world state, game loop
-- `players` Map - Connected players and their current room
-- `waitingQueue` Array - Players waiting for quick match
-- `playerStates` Map (per room) - Player resources and supply tracking
-
-Room IDs are randomly generated 6-character uppercase alphanumeric strings.
+Each game room has an isolated World instance containing:
+- All entities (units, buildings, resources, ball, avatars)
+- Component storage indexed by entity ID and component type
+- Message queue for the current tick
 
 ### Game Loop
 
-The `GameLoop` class runs at 60 ticks per second per active game room:
+The SystemRunner executes systems in order at 60 ticks per second:
 
-1. **Process Commands**: Dequeue and execute player commands (MOVE, ATTACK, BUILD, etc.)
-2. **Update Simulation**: Move units, process combat, gather resources, construct buildings
-3. **Broadcast State**: Send world state to clients every 3 ticks (~20 updates/sec)
-
-Commands are validated server-side (ownership checks, resource costs, range checks).
+1. **CommandProcessingSystem** - Dequeue and execute player commands
+2. **Movement Systems** - Avatar WASD, unit pathfinding, ball physics
+3. **Collision Systems** - Detection and resolution
+4. **Combat Systems** - Attack, auto-attack, death handling
+5. **Economy Systems** - Gathering, construction, training
+6. **Avatar Systems** - Pickup/drop, building interaction
+7. **Win System** - Goal check
 
 ## Client
 
@@ -60,10 +79,10 @@ Application Logic (lobby.js, game.js)
     ↓
 Network Abstraction (NetworkClient class in network.js)
     ↓
-Socket.io Client
+SignalR Client
 ```
 
-The NetworkClient class wraps Socket.io to provide a clean API for game-specific operations like `createRoom()`, `joinRoom()`, `sendCommand()`.
+The NetworkClient class wraps SignalR to provide a clean API for game-specific operations like `createRoom()`, `joinRoom()`, `sendCommand()`. Game logic in `lobby.js` and `game.js` is unchanged from the Node.js version.
 
 ### Game Client Responsibilities
 
