@@ -61,7 +61,7 @@ public class RoomManager
 
         // Add AI player
         var aiConnectionId = $"AI-{Guid.NewGuid():N}";
-        await room.AddPlayer(aiConnectionId, "AI Opponent", isAI: true);
+        await room.AddPlayer(aiConnectionId, "AI Opponent", isAI: true, aiType: aiType);
 
         return room;
     }

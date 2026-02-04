@@ -22,6 +22,7 @@ public class AIPlayer
     private readonly int _playerIndex;
     private readonly World _world;
     private readonly PlayerState _playerState;
+    private readonly string _aiType;
 
     // AI tuning parameters
     private const int MAX_WORKERS = 8;
@@ -31,12 +32,13 @@ public class AIPlayer
     private float _decisionTimer = 0f;
     private int _enemyPlayerIndex;
 
-    public AIPlayer(string playerId, int playerIndex, World world, PlayerState playerState)
+    public AIPlayer(string playerId, int playerIndex, World world, PlayerState playerState, string aiType = "normal")
     {
         _playerId = playerId;
         _playerIndex = playerIndex;
         _world = world;
         _playerState = playerState;
+        _aiType = aiType;
         _enemyPlayerIndex = playerIndex == 0 ? 1 : 0;
     }
 
@@ -45,6 +47,10 @@ public class AIPlayer
     /// </summary>
     public void Tick(float deltaTime)
     {
+        // Empty AI does nothing
+        if (_aiType == "empty")
+            return;
+
         _decisionTimer += deltaTime;
 
         // Always control avatar (push ball toward enemy goal)

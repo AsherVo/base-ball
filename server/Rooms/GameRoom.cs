@@ -23,6 +23,7 @@ public class PlayerInfo
     public int PlayerIndex { get; set; }
     public bool IsReady { get; set; }
     public bool IsAI { get; set; }
+    public string AIType { get; set; } = "normal";
 }
 
 public enum GameRoomState
@@ -63,7 +64,7 @@ public class GameRoom
         _hubContext = hubContext;
     }
 
-    public async Task<bool> AddPlayer(string connectionId, string name, bool isAI = false)
+    public async Task<bool> AddPlayer(string connectionId, string name, bool isAI = false, string aiType = "normal")
     {
         lock (_lock)
         {
@@ -77,7 +78,8 @@ public class GameRoom
                 Name = name,
                 PlayerIndex = playerIndex,
                 IsReady = isAI,  // AI is always ready
-                IsAI = isAI
+                IsAI = isAI,
+                AIType = aiType
             };
         }
 
@@ -296,7 +298,8 @@ public class GameRoom
                     player.ConnectionId,
                     player.PlayerIndex,
                     _world,
-                    playerState
+                    playerState,
+                    player.AIType
                 );
             }
         }
