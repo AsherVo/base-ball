@@ -31,15 +31,35 @@ server/
 │   │   ├── ISystem.cs      # StartSystem, StopSystem, TickSystem interface
 │   │   ├── IService.cs     # Start, Stop interface for services
 │   │   └── WorldManipulator.cs # Base class wrapping World for systems
-│   ├── Components/         # Data-only component classes
+│   ├── Components/
+│   │   ├── Core/           # Transform, Ownership, EntityType, Sprite
+│   │   ├── Combat/         # Health, Attack, AttackCooldown, AttackTarget
+│   │   ├── Movement/       # Speed, MoveTarget, Velocity, Friction
+│   │   ├── Unit/           # UnitState, GatherTarget, Carried, AutoAttackOnly, etc.
+│   │   ├── Building/       # Construction, TrainingQueue, RallyPoint, Trains
+│   │   ├── Avatar/         # CarriedUnit, MoveDirection, PickupRange
+│   │   ├── Vision/         # VisionRadius
+│   │   ├── Resource/       # ResourceAmount
 │   │   └── Name.cs         # Entity naming component
-│   ├── Systems/            # Game logic systems (pending)
-│   └── Messages/           # Event message types (pending)
+│   ├── Systems/
+│   │   ├── Command/        # CommandProcessingSystem
+│   │   ├── Movement/       # AvatarMovementSystem, UnitMovementSystem, PhysicsSystem
+│   │   ├── Collision/      # CollisionDetectionSystem, CollisionResolutionSystem, BallCollisionSystem
+│   │   ├── Combat/         # AttackSystem, AutoAttackSystem, DeathSystem
+│   │   ├── Economy/        # GatheringSystem, ConstructionSystem, TrainingSystem
+│   │   ├── Avatar/         # PickupDropSystem, BuildingInteractionSystem
+│   │   └── Win/            # GoalCheckSystem
+│   └── Messages/           # Command and event message types
 ├── Network/
-│   └── GameHub.cs          # SignalR hub (placeholder)
+│   └── GameHub.cs          # SignalR hub (pending implementation)
 ├── Rooms/                  # Room management (pending)
 ├── AI/                     # AI opponent (pending)
-└── Setup/                  # Map generation, entity factory (pending)
+├── Setup/
+│   ├── GameConstants.cs    # Tick rate, map dimensions, physics
+│   ├── EntityDefinitions.cs # Unit, building, resource stats
+│   └── EntityFactory.cs    # Entity creation with components
+└── Util/
+    └── MapBounds.cs        # Octagonal map boundary utilities
 ```
 
 ### ECS Architecture (Net City Pattern)
@@ -64,15 +84,24 @@ Each game room has an isolated World instance containing:
 
 ### Game Loop
 
-The SystemRunner executes systems in order at 60 ticks per second:
+The World.Tick() executes systems in order at 60 ticks per second (16.67ms per tick):
 
-1. **CommandProcessingSystem** - Dequeue and execute player commands
-2. **Movement Systems** - Avatar WASD, unit pathfinding, ball physics
-3. **Collision Systems** - Detection and resolution
-4. **Combat Systems** - Attack, auto-attack, death handling
-5. **Economy Systems** - Gathering, construction, training
-6. **Avatar Systems** - Pickup/drop, building interaction
-7. **Win System** - Goal check
+1. **CommandProcessingSystem** - Route player commands to game state changes
+2. **AvatarMovementSystem** - WASD input to avatar position
+3. **UnitMovementSystem** - Pathfinding toward move targets
+4. **PhysicsSystem** - Ball velocity/friction with wall bouncing
+5. **CollisionDetectionSystem** - Spatial hash collision detection
+6. **CollisionResolutionSystem** - Push overlapping entities apart
+7. **BallCollisionSystem** - Apply kick forces on ball collisions
+8. **AttackSystem** - Deal damage to targets in range
+9. **AutoAttackSystem** - Idle units find nearby enemies
+10. **GatheringSystem** - Workers collect and return resources
+11. **ConstructionSystem** - Building progress with assigned workers
+12. **TrainingSystem** - Unit spawning from building queues
+13. **PickupDropSystem** - Avatar picks up/drops units
+14. **BuildingInteractionSystem** - Proximity-based building commands
+15. **DeathSystem** - Remove dead entities, clear references
+16. **GoalCheckSystem** - Win condition detection
 
 ## Client
 

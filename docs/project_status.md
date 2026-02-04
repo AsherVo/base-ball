@@ -24,13 +24,56 @@ This project is undergoing a migration from Node.js to C# with an ECS architectu
 - WorldManipulator base class wrapping World methods as protected
 - Name component for entity naming
 
+### Phase 2: All Components ✅ Complete
+Components defined in `server/ECS/Components/`:
+- **Core**: Transform, Ownership, EntityType, Sprite
+- **Combat**: Health, Attack, AttackCooldown, AttackTarget
+- **Movement**: Speed, MoveTarget, Velocity, Friction
+- **Unit**: UnitState, GatherTarget, GatherProgress, CarryAmount, BuildTarget, Carried, AutoAttackOnly, CanGather, CanBuild
+- **Building**: Construction, TrainingQueue, RallyPoint, Trains, SuppliesProvided
+- **Avatar**: CarriedUnit, MoveDirection, PickupRange, InteractionRange
+- **Vision**: VisionRadius
+- **Resource**: ResourceAmount
+
+Setup classes in `server/Setup/`:
+- EntityDefinitions: Unit, building, resource, special entity stats
+- EntityFactory: Creates entities with appropriate components
+- GameConstants: Tick rate, map dimensions, physics constants
+
+Utility classes in `server/Util/`:
+- MapBounds: Octagonal map boundary checking and clamping
+
+### Phase 3: Movement & Physics Systems ✅ Complete
+- AvatarMovementSystem: WASD movement with diagonal normalization
+- UnitMovementSystem: Pathfinding to move targets, attack range checking
+- PhysicsSystem: Ball velocity, friction, wall bounce with reflection
+
+### Phase 4: Collision Systems ✅ Complete
+- CollisionDetectionSystem: Spatial hash for O(n) collision detection
+- CollisionResolutionSystem: Mass-based separation (buildings immovable)
+- BallCollisionSystem: Kick physics, avatar momentum influence
+
+### Phase 5: Combat Systems ✅ Complete
+- AttackSystem: Target tracking, cooldown, damage dealing
+- AutoAttackSystem: Idle units find nearby enemies
+- DeathSystem: Entity cleanup, attack target clearing
+
+### Phase 6: Economy Systems ✅ Complete
+- GatheringSystem: Worker resource collection and return
+- ConstructionSystem: Building progress, health scaling
+- TrainingSystem: Unit training queue processing
+
+### Phase 7: Avatar & Win Systems ✅ Complete
+- PickupDropSystem: Avatar picks up/drops friendly units
+- BuildingInteractionSystem: Proximity-based building commands
+- GoalCheckSystem: Ball position check for win condition
+- CommandProcessingSystem: Message-based command routing
+
+Messages defined in `server/ECS/Messages/`:
+- Commands: AvatarMoveCommand, MoveCommand, AttackCommand, GatherCommand, BuildCommand, PickupCommand, DropCommand, BuildingInteractionCommand, TrainRequestMessage
+- Events: CollisionMessage, AttackEvent, DeathEvent, GameOverMessage, ResourceDepositMessage, UnitTrainedMessage
+
 ### Remaining Phases
-- Phase 2: All Components (pending)
-- Phase 3: Movement & Physics Systems (pending)
-- Phase 4: Collision Systems (pending)
-- Phase 5: Combat Systems (pending)
-- Phase 6: Economy Systems (pending)
-- Phase 7: Avatar & Win Systems (pending)
 - Phase 8: Networking (pending)
 - Phase 9: Room Management (pending)
 - Phase 10: AI & Map Generation (pending)
