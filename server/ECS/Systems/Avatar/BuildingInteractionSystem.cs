@@ -29,16 +29,17 @@ public class BuildingInteractionSystem : WorldManipulator, ISystem
 
     private void ProcessInteraction(BuildingInteractionCommand cmd)
     {
-        if (!Exists(cmd.avatarEntity) || !Exists(cmd.buildingEntity))
+        var avatarEntity = FindAvatarByPlayerId(cmd.playerId);
+        if (avatarEntity == 0 || !Exists(cmd.buildingId))
             return;
 
-        var avatarTransform = Get<Transform>(cmd.avatarEntity);
-        var avatarOwnership = Get<Ownership>(cmd.avatarEntity);
-        var interactionRange = Get<InteractionRange>(cmd.avatarEntity);
+        var avatarTransform = Get<Transform>(avatarEntity);
+        var avatarOwnership = Get<Ownership>(avatarEntity);
+        var interactionRange = Get<InteractionRange>(avatarEntity);
 
-        var buildingTransform = Get<Transform>(cmd.buildingEntity);
-        var buildingOwnership = Get<Ownership>(cmd.buildingEntity);
-        var buildingType = Get<EntityType>(cmd.buildingEntity);
+        var buildingTransform = Get<Transform>(cmd.buildingId);
+        var buildingOwnership = Get<Ownership>(cmd.buildingId);
+        var buildingType = Get<EntityType>(cmd.buildingId);
 
         if (avatarTransform == null || buildingTransform == null ||
             avatarOwnership == null || buildingOwnership == null ||
@@ -58,16 +59,36 @@ public class BuildingInteractionSystem : WorldManipulator, ISystem
             return;
 
         // Check if building is under construction
-        if (Has<Construction>(cmd.buildingEntity))
+        if (Has<Construction>(cmd.buildingId))
             return;
 
         // Process action
         switch (cmd.action)
         {
             case "train":
-                ProcessTrain(cmd.buildingEntity, cmd.unitType);
+                ProcessTrain(cmd.buildingId, cmd.unitType);
                 break;
         }
+    }
+
+    private long FindAvatarByPlayerId(string? playerId)
+    {
+        if (playerId == null)
+            return 0;
+
+        var entities = world.GetEntities();
+        foreach (var entity in entities)
+        {
+            var entityType = Get<EntityType>(entity);
+            if (entityType?.type != "avatar")
+                continue;
+
+            var ownership = Get<Ownership>(entity);
+            if (ownership?.ownerId == playerId)
+                return entity;
+        }
+
+        return 0;
     }
 
     private void ProcessTrain(long buildingEntity, string? unitType)

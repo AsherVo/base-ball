@@ -24,15 +24,39 @@ public class PickupDropSystem : WorldManipulator, ISystem
         var pickupCommands = Read<PickupCommand>();
         foreach (var cmd in pickupCommands)
         {
-            ProcessPickup(cmd.avatarEntity);
+            var avatarEntity = FindAvatarByPlayerId(cmd.playerId);
+            if (avatarEntity != 0)
+                ProcessPickup(avatarEntity);
         }
 
         // Process drop commands
         var dropCommands = Read<DropCommand>();
         foreach (var cmd in dropCommands)
         {
-            ProcessDrop(cmd.avatarEntity);
+            var avatarEntity = FindAvatarByPlayerId(cmd.playerId);
+            if (avatarEntity != 0)
+                ProcessDrop(avatarEntity);
         }
+    }
+
+    private long FindAvatarByPlayerId(string? playerId)
+    {
+        if (playerId == null)
+            return 0;
+
+        var entities = world.GetEntities();
+        foreach (var entity in entities)
+        {
+            var entityType = Get<EntityType>(entity);
+            if (entityType?.type != "avatar")
+                continue;
+
+            var ownership = Get<Ownership>(entity);
+            if (ownership?.ownerId == playerId)
+                return entity;
+        }
+
+        return 0;
     }
 
     private void ProcessPickup(long avatarEntity)

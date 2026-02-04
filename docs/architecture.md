@@ -51,13 +51,22 @@ server/
 │   │   └── Win/            # GoalCheckSystem
 │   └── Messages/           # Command and event message types
 ├── Network/
-│   └── GameHub.cs          # SignalR hub (pending implementation)
-├── Rooms/                  # Room management (pending)
-├── AI/                     # AI opponent (pending)
+│   ├── GameHub.cs          # SignalR hub for lobby and game events
+│   └── Serialization/
+│       └── WorldSerializer.cs  # ECS to JSON conversion for client protocol
+├── Rooms/
+│   ├── GameRoom.cs         # Isolated World per match, game loop, commands
+│   ├── PlayerState.cs      # Player resource/supply tracking
+│   ├── RoomManager.cs      # Room lifecycle management
+│   └── Matchmaking/
+│       └── MatchmakingService.cs  # Quick match queue
+├── AI/
+│   └── AIPlayer.cs         # Server-side AI decision making
 ├── Setup/
 │   ├── GameConstants.cs    # Tick rate, map dimensions, physics
 │   ├── EntityDefinitions.cs # Unit, building, resource stats
-│   └── EntityFactory.cs    # Entity creation with components
+│   ├── EntityFactory.cs    # Entity creation with components
+│   └── MapGenerator.cs     # Initial world setup with bases, workers, resources
 └── Util/
     └── MapBounds.cs        # Octagonal map boundary utilities
 ```

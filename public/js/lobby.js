@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // State
   let playerName = '';
   let currentRoom = null;
+  let myPlayerId = null;
   let players = [];
   let matchReady = false;
   let isReady = false;
@@ -143,7 +144,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   network.on('roomJoined', (data) => {
+    console.log('roomJoined received:', data);
+    console.log('players array:', data.players);
     currentRoom = data.roomId;
+    myPlayerId = data.playerId;
     players = data.players;
     currentRoomId.textContent = data.roomId;
     updatePlayersDisplay();
@@ -182,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   network.on('readyUpdate', (data) => {
     updatePlayersDisplay(data.players);
-    const myReady = data.players.find(p => p.id === network.socket.id);
+    const myReady = data.players.find(p => p.id === myPlayerId);
     isReady = myReady?.ready || false;
     readyBtn.textContent = isReady ? 'Not Ready' : 'Ready';
   });

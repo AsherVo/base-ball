@@ -4,6 +4,7 @@ public static class GameConstants
 {
     // Tick rate
     public const int TICK_RATE = 60;
+    public const int STATE_BROADCAST_RATE = 20;  // State updates per second
     public const float TICK_DELTA = 1f / TICK_RATE;
 
     // Map dimensions
@@ -18,14 +19,25 @@ public static class GameConstants
     public const int CORNER_CUT_SIZE = 300;
 
     // Goals
-    public const int GOAL_WIDTH = 50;
-    public const int GOAL_HEIGHT = 400;
+    public const int GOAL_WIDTH = 100;
+    public const int GOAL_HEIGHT = 200;
 
     // Ball physics
     public const float BALL_FRICTION = 0.95f;
     public const float BALL_KICK_FORCE = 200f;
     public const float BALL_MIN_VELOCITY = 5f;
+    public const float BALL_PUSH_FORCE = 300f;
+    public const int BALL_RADIUS = 30;
 
     // Starting resources
     public const int STARTING_MINERALS = 100;
+    public const int STARTING_WORKERS = 4;
+    public const int STARTING_SUPPLY = 4;
+    public const int STARTING_MAX_SUPPLY = 10;
+
+    // Room settings
+    public const int MAX_PLAYERS_PER_ROOM = 2;
+
+    // Countdown
+    public const int COUNTDOWN_SECONDS = 3;
 }

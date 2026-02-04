@@ -73,10 +73,33 @@ Messages defined in `server/ECS/Messages/`:
 - Commands: AvatarMoveCommand, MoveCommand, AttackCommand, GatherCommand, BuildCommand, PickupCommand, DropCommand, BuildingInteractionCommand, TrainRequestMessage
 - Events: CollisionMessage, AttackEvent, DeathEvent, GameOverMessage, ResourceDepositMessage, UnitTrainedMessage
 
+### Phase 8: Networking ✅ Complete
+- GameHub: Full SignalR hub implementation with all event handlers
+- WorldSerializer: Converts ECS World state to JSON matching JS client protocol
+- Event handlers: SetName, CreateRoom, CreateRoomWithAI, JoinRoom, LeaveRoom, QuickMatch, PlayerReady, PlayerCommand
+- Client broadcasts: roomCreated, roomJoined, playerJoined, playerLeft, matchReady, waitingForMatch, readyUpdate, countdown, countdownCanceled, gameStart, gameState, attackEvent, actorDeath, gameOver, error
+
+### Phase 9: Room Management ✅ Complete
+- GameRoom: Isolated World instance per match with 60Hz game loop
+- PlayerState: Resource tracking (minerals, supply, maxSupply)
+- PlayerInfo: Player connection data, name, ready state, AI flag
+- RoomManager: Room lifecycle management, player tracking
+- MatchmakingService: Quick match queue with automatic pairing
+- Game loop: Ticks at 60Hz, broadcasts state at 20Hz
+- Command queue: Thread-safe command queuing from SignalR to game loop
+- Countdown: 3-second countdown when both players ready
+
+### Phase 10: AI & Map Generation ✅ Complete
+- MapGenerator: Creates symmetrical map with bases, workers, mineral patches, ball, avatars
+- AIPlayer: Server-side AI opponent that:
+  - Controls avatar to push ball toward enemy goal
+  - Manages economy (assigns idle workers to gather resources)
+  - Builds supply depots when approaching supply cap
+  - Builds barracks and trains soldiers
+  - Trains workers up to configurable limit
+  - Sends soldiers toward ball
+
 ### Remaining Phases
-- Phase 8: Networking (pending)
-- Phase 9: Room Management (pending)
-- Phase 10: AI & Map Generation (pending)
 - Phase 11: Integration Testing (pending)
 
 ---

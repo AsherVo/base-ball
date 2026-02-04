@@ -1,9 +1,18 @@
+using System.Text.Json;
 using Microsoft.Extensions.FileProviders;
 using server.Network;
+using server.Rooms;
+using server.Rooms.Matchmaking;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    });
+builder.Services.AddSingleton<RoomManager>();
+builder.Services.AddSingleton<MatchmakingService>();
 
 var app = builder.Build();
 

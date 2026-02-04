@@ -1,13 +1,24 @@
 using Microsoft.AspNetCore.SignalR;
+using server.Rooms;
+using server.Rooms.Matchmaking;
 
 namespace server.Network;
 
 /// <summary>
 /// SignalR hub for game communication.
-/// Placeholder - full implementation in Phase 8.
+/// Handles lobby, matchmaking, and in-game commands.
 /// </summary>
 public class GameHub : Hub
 {
+    private readonly RoomManager _roomManager;
+    private readonly MatchmakingService _matchmaking;
+
+    public GameHub(RoomManager roomManager, MatchmakingService matchmaking)
+    {
+        _roomManager = roomManager;
+        _matchmaking = matchmaking;
+    }
+
     public override async Task OnConnectedAsync()
     {
         await base.OnConnectedAsync();
@@ -16,56 +27,176 @@ public class GameHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        await base.OnDisconnectedAsync(exception);
         Console.WriteLine($"Client disconnected: {Context.ConnectionId}");
+
+        // Clean up matchmaking queue
+        _matchmaking.HandleDisconnect(Context.ConnectionId);
+
+        // Clean up room
+        await _roomManager.HandleDisconnect(Context.ConnectionId);
+
+        await base.OnDisconnectedAsync(exception);
     }
 
-    // Placeholder methods matching Socket.io event names
-    public async Task SetName(string name)
+    /// <summary>
+    /// Set the player's display name.
+    /// </summary>
+    public Task SetName(string name)
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(name))
+            name = "Player";
+
+        // Sanitize and limit name length
+        name = name.Trim();
+        if (name.Length > 20)
+            name = name[..20];
+
+        _roomManager.SetPlayerName(Context.ConnectionId, name);
+        return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Create a new game room.
+    /// </summary>
     public async Task CreateRoom()
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        var room = await _roomManager.CreateRoom(Context.ConnectionId);
+        if (room == null)
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Failed to create room. You may already be in a room." });
+            return;
+        }
+
+        var roomInfo = room.GetRoomInfo();
+        // Add the player's own ID to the response
+        roomInfo["playerId"] = Context.ConnectionId;
+        Console.WriteLine($"Room created: {System.Text.Json.JsonSerializer.Serialize(roomInfo)}");
+        await Clients.Caller.SendAsync("roomCreated", roomInfo);
+        // Also send roomJoined so client enters the room view
+        await Clients.Caller.SendAsync("roomJoined", roomInfo);
     }
 
+    /// <summary>
+    /// Create a room with an AI opponent for single player.
+    /// </summary>
     public async Task CreateRoomWithAI(object options)
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        var aiType = "normal";
+
+        // Parse AI type from options if provided
+        if (options is System.Text.Json.JsonElement jsonElement)
+        {
+            if (jsonElement.TryGetProperty("aiType", out var aiTypeProp))
+            {
+                aiType = aiTypeProp.GetString() ?? "normal";
+            }
+        }
+
+        var room = await _roomManager.CreateRoomWithAI(Context.ConnectionId, aiType);
+        if (room == null)
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Failed to create room with AI." });
+            return;
+        }
+
+        await Clients.Caller.SendAsync("roomCreated", room.GetRoomInfo());
+        // Also send roomJoined so client enters the room view
+        await Clients.Caller.SendAsync("roomJoined", room.GetRoomInfo());
+
+        // AI is already added and ready, so notify match ready with players list
+        await Clients.Caller.SendAsync("matchReady", room.GetRoomInfo());
     }
 
+    /// <summary>
+    /// Join an existing room by ID.
+    /// </summary>
     public async Task JoinRoom(string roomId)
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(roomId))
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Invalid room ID." });
+            return;
+        }
+
+        roomId = roomId.Trim().ToUpperInvariant();
+        var room = await _roomManager.JoinRoom(Context.ConnectionId, roomId);
+
+        if (room == null)
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Room not found or is full." });
+            return;
+        }
+
+        // Notify the joining player
+        var roomInfo = room.GetRoomInfo();
+        roomInfo["playerId"] = Context.ConnectionId;
+        await Clients.Caller.SendAsync("roomJoined", roomInfo);
+
+        // Notify other players in the room - client expects { player: { id, name, ... } }
+        var joiningPlayer = room.Players.First(p => p.ConnectionId == Context.ConnectionId);
+        await Clients.OthersInGroup(roomId).SendAsync("playerJoined", new
+        {
+            player = new
+            {
+                id = joiningPlayer.ConnectionId,
+                name = joiningPlayer.Name,
+                playerIndex = joiningPlayer.PlayerIndex,
+                isReady = joiningPlayer.IsReady
+            }
+        });
+
+        // If room is now full, notify match ready with full room info (client needs players list)
+        if (room.IsFull)
+        {
+            await Clients.Group(roomId).SendAsync("matchReady", room.GetRoomInfo());
+        }
     }
 
+    /// <summary>
+    /// Leave the current room.
+    /// </summary>
     public async Task LeaveRoom()
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        // Also leave matchmaking queue
+        _matchmaking.LeaveQueue(Context.ConnectionId);
+
+        await _roomManager.LeaveRoom(Context.ConnectionId);
     }
 
+    /// <summary>
+    /// Enter the quick match queue for automatic pairing.
+    /// </summary>
     public async Task QuickMatch()
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        var success = await _matchmaking.JoinQueue(Context.ConnectionId);
+        if (!success)
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Already in queue or in a room." });
+        }
     }
 
+    /// <summary>
+    /// Toggle the player's ready state.
+    /// </summary>
     public async Task PlayerReady()
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        var room = _roomManager.GetPlayerRoom(Context.ConnectionId);
+        if (room == null)
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Not in a room." });
+            return;
+        }
+
+        await room.SetPlayerReady(Context.ConnectionId);
     }
 
-    public async Task PlayerCommand(object command)
+    /// <summary>
+    /// Send a player command during the game.
+    /// </summary>
+    public Task PlayerCommand(object command)
     {
-        // TODO: Implement in Phase 8
-        await Task.CompletedTask;
+        var room = _roomManager.GetPlayerRoom(Context.ConnectionId);
+        room?.QueueCommand(Context.ConnectionId, command);
+        return Task.CompletedTask;
     }
 }

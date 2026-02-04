@@ -142,7 +142,7 @@ public static class EntityDefinitions
         {
             type = "ball",
             subtype = "ball",
-            radius = 120,
+            radius = GameConstants.BALL_RADIUS,
             visionRadius = 300
         },
         ["avatar"] = new SpecialDef
