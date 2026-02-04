@@ -132,11 +132,8 @@ public class MatchmakingService
                 name = _roomManager.GetPlayerName(player2)
             });
 
-            // Notify both that match is ready
-            await _hubContext.Clients.Clients(player1, player2).SendAsync("matchReady", new
-            {
-                roomId = room.RoomId
-            });
+            // Notify both that match is ready (include full room info with players list)
+            await _hubContext.Clients.Clients(player1, player2).SendAsync("matchReady", joinedRoom.GetRoomInfo());
         }
         catch (Exception ex)
         {

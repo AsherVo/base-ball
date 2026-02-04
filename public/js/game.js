@@ -109,17 +109,19 @@ document.addEventListener('DOMContentLoaded', () => {
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  // Connect and rejoin room
+  // Connect and rejoin the active game
   network.connect().then(() => {
     network.setName(playerName);
-    network.joinRoom(roomId);
-    gameStatus.textContent = 'Connected';
+    // Use rejoinGame for reconnecting to an active game after page navigation
+    network.rejoinGame(roomId, playerName);
+    gameStatus.textContent = 'Reconnecting...';
   }).catch(err => {
     gameStatus.textContent = 'Connection failed';
   });
 
   // Network handlers
   network.on('roomJoined', (data) => {
+    // This is for fresh joins (lobby flow) - shouldn't normally happen on game page
     players = data.players;
     updatePlayersList();
     gameStatus.textContent = 'In room';
@@ -177,6 +179,15 @@ document.addEventListener('DOMContentLoaded', () => {
     updateResourceDisplay();
     gameStatus.textContent = 'Game started!';
     console.log('World received:', world, 'I am player', myPlayerIndex, 'myPlayerId:', myPlayerId);
+
+    // Start the game loop (needed for rejoin flow)
+    startGameLoop();
+
+    // Update players list from gameStart data
+    if (data.players) {
+      players = data.players;
+      updatePlayersList();
+    }
   });
 
   network.on('gameState', (data) => {

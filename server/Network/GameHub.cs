@@ -199,4 +199,29 @@ public class GameHub : Hub
         room?.QueueCommand(Context.ConnectionId, command);
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Rejoin an active game after page navigation/reconnection.
+    /// </summary>
+    public async Task RejoinGame(string roomId, string playerName)
+    {
+        if (string.IsNullOrWhiteSpace(roomId))
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Invalid room ID." });
+            return;
+        }
+
+        roomId = roomId.Trim().ToUpperInvariant();
+        var result = await _roomManager.RejoinGame(Context.ConnectionId, roomId, playerName);
+
+        if (result == null)
+        {
+            await Clients.Caller.SendAsync("error", new { message = "Could not rejoin game. Room not found or game not active." });
+            return;
+        }
+
+        // Send gameStart event with current state
+        await Clients.Caller.SendAsync("gameStart", result);
+        Console.WriteLine($"Player {playerName} rejoined room {roomId} with new connection {Context.ConnectionId}");
+    }
 }

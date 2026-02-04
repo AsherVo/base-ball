@@ -95,6 +95,10 @@ class NetworkClient {
     this.connection.invoke('JoinRoom', roomId);
   }
 
+  rejoinGame(roomId, playerName) {
+    this.connection.invoke('RejoinGame', roomId, playerName);
+  }
+
   leaveRoom() {
     this.connection.invoke('LeaveRoom');
   }

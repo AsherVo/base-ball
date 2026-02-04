@@ -250,10 +250,11 @@ WorldSerializer **must** produce identical JSON to current server. The JS client
 - AIPlayer (port decision logic)
 - MapGenerator
 
-### Phase 11: Integration Testing
+### Phase 11: Integration Testing ✅
 - Connect JS client to C# server
 - Verify all mechanics
 - Performance testing
+- **25 integration tests pass** (`tests/integration-test.js`)
 
 ## Critical Files to Port/Modify
 

@@ -45,6 +45,7 @@ public class RoomManager
         if (await room.AddPlayer(creatorConnectionId, playerName))
         {
             _playerRooms[creatorConnectionId] = roomId;
+            Console.WriteLine($"Room {roomId} created by {playerName} ({creatorConnectionId})");
             return room;
         }
 
@@ -69,13 +70,22 @@ public class RoomManager
     {
         // Check if player is already in a room
         if (_playerRooms.ContainsKey(connectionId))
+        {
+            Console.WriteLine($"JoinRoom failed: Player {connectionId} already in room {_playerRooms[connectionId]}");
             return null;
+        }
 
         if (!_rooms.TryGetValue(roomId, out var room))
+        {
+            Console.WriteLine($"JoinRoom failed: Room {roomId} not found. Available rooms: {string.Join(", ", _rooms.Keys)}");
             return null;
+        }
 
         if (room.IsFull)
+        {
+            Console.WriteLine($"JoinRoom failed: Room {roomId} is full ({room.PlayerCount} players)");
             return null;
+        }
 
         var playerName = GetPlayerName(connectionId);
         if (await room.AddPlayer(connectionId, playerName))
@@ -97,7 +107,14 @@ public class RoomManager
 
         await room.RemovePlayer(connectionId);
 
-        // Clean up empty rooms
+        // Don't clean up rooms with active games - allow reconnection
+        if (room.State == GameRoomState.Playing || room.State == GameRoomState.Countdown)
+        {
+            Console.WriteLine($"Room {roomId} kept alive for reconnection (state: {room.State})");
+            return;
+        }
+
+        // Clean up empty rooms (only in Waiting state)
         if (room.PlayerCount == 0 || (room.PlayerCount == 1 && room.HasAI))
         {
             if (_rooms.TryRemove(roomId, out var removedRoom))
@@ -122,6 +139,34 @@ public class RoomManager
     public string? GetPlayerRoomId(string connectionId)
     {
         return _playerRooms.TryGetValue(connectionId, out var roomId) ? roomId : null;
+    }
+
+    /// <summary>
+    /// Rejoin an active game after page navigation/reconnection.
+    /// </summary>
+    public async Task<object?> RejoinGame(string newConnectionId, string roomId, string playerName)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room))
+        {
+            Console.WriteLine($"RejoinGame failed: Room {roomId} not found");
+            return null;
+        }
+
+        if (room.State != GameRoomState.Playing && room.State != GameRoomState.Countdown)
+        {
+            Console.WriteLine($"RejoinGame failed: Room {roomId} not in active state ({room.State})");
+            return null;
+        }
+
+        // Try to rejoin the room with the new connection ID
+        var result = await room.RejoinPlayer(newConnectionId, playerName);
+        if (result != null)
+        {
+            _playerRooms[newConnectionId] = roomId;
+            _playerNames[newConnectionId] = playerName;
+        }
+
+        return result;
     }
 
     public async Task HandleDisconnect(string connectionId)

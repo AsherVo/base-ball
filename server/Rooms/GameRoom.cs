@@ -93,12 +93,23 @@ public class GameRoom
     public async Task RemovePlayer(string connectionId)
     {
         bool wasPlaying;
+        bool isActiveGame;
         lock (_lock)
         {
-            if (!_players.Remove(connectionId))
+            if (!_players.TryGetValue(connectionId, out var player))
                 return;
 
-            wasPlaying = State == GameRoomState.Playing || State == GameRoomState.Countdown;
+            isActiveGame = State == GameRoomState.Playing || State == GameRoomState.Countdown;
+            wasPlaying = isActiveGame;
+
+            // During active games, don't remove non-AI players - allow reconnection
+            if (isActiveGame && !player.IsAI)
+            {
+                Console.WriteLine($"Player {player.Name} disconnected from active game in room {RoomId} - keeping slot for reconnection");
+                return;
+            }
+
+            _players.Remove(connectionId);
         }
 
         await _hubContext.Groups.RemoveFromGroupAsync(connectionId, RoomId);
@@ -106,12 +117,78 @@ public class GameRoom
         // Notify other players
         await BroadcastToRoom("playerLeft", new { playerId = connectionId });
 
-        // Cancel countdown or game if it was in progress
+        // Cancel countdown or game if it was in progress (only if actually removed)
         if (wasPlaying)
         {
             await CancelCountdown();
             await StopGame();
         }
+    }
+
+    /// <summary>
+    /// Rejoin an active game after page navigation/reconnection.
+    /// Returns the gameStart data or null if rejoin failed.
+    /// </summary>
+    public async Task<object?> RejoinPlayer(string newConnectionId, string playerName)
+    {
+        PlayerInfo? player = null;
+        string? oldConnectionId = null;
+
+        lock (_lock)
+        {
+            if (State != GameRoomState.Playing && State != GameRoomState.Countdown)
+                return null;
+
+            // Find player by name
+            foreach (var kvp in _players)
+            {
+                if (kvp.Value.Name == playerName && !kvp.Value.IsAI)
+                {
+                    player = kvp.Value;
+                    oldConnectionId = kvp.Key;
+                    break;
+                }
+            }
+
+            if (player == null || oldConnectionId == null)
+            {
+                Console.WriteLine($"RejoinPlayer failed: Player {playerName} not found in room {RoomId}");
+                return null;
+            }
+
+            // Update the connection ID
+            _players.Remove(oldConnectionId);
+            player.ConnectionId = newConnectionId;
+            _players[newConnectionId] = player;
+
+            // Update player state key as well (re-key without modifying PlayerId)
+            if (_playerStates.TryGetValue(oldConnectionId, out var playerState))
+            {
+                _playerStates.Remove(oldConnectionId);
+                _playerStates[newConnectionId] = playerState;
+            }
+        }
+
+        // Add to SignalR group
+        await _hubContext.Groups.AddToGroupAsync(newConnectionId, RoomId);
+
+        // Return gameStart data
+        var worldData = SerializeWorldState();
+        var state = _playerStates.GetValueOrDefault(newConnectionId);
+
+        return new
+        {
+            world = worldData,
+            playerId = newConnectionId,
+            playerIndex = player.PlayerIndex,
+            playerState = state?.ToJson(),
+            players = _players.Values.Select(p => new
+            {
+                id = p.ConnectionId,
+                name = p.Name,
+                playerIndex = p.PlayerIndex
+            }).ToList()
+        };
     }
 
     public async Task SetPlayerReady(string connectionId)
