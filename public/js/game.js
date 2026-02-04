@@ -245,17 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.location.href = '/';
   });
 
-  // Build menu buttons
-  document.querySelectorAll('.build-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const buildingType = btn.dataset.building;
-      enterBuildMode(buildingType);
-    });
-  });
-
-  document.getElementById('cancel-build-btn')?.addEventListener('click', () => {
-    exitBuildMode();
-  });
+  // Build menu disabled - all interactions through avatar
 
   // Avatar & Camera controls - Keyboard
   window.addEventListener('keydown', (e) => {
@@ -374,42 +364,17 @@ document.addEventListener('DOMContentLoaded', () => {
       dragCameraStartX = cameraX;
       dragCameraStartY = cameraY;
     } else if (e.button === 0) {
-      if (buildMode) {
-        handleBuildPlacement(e.clientX, e.clientY);
-        return;
-      }
+      // Only allow minimap navigation - map clicking disabled (interactions through avatar)
       if (handleMinimapNavigation(e.clientX, e.clientY)) {
         isMinimapDragging = true;
         canvas.style.cursor = 'crosshair';
         return;
       }
-      if (world) {
-        // Start potential selection box
-        const worldPos = screenToWorld(e.clientX, e.clientY);
-        selectBoxStartX = worldPos.x;
-        selectBoxStartY = worldPos.y;
-        selectBoxEndX = worldPos.x;
-        selectBoxEndY = worldPos.y;
-        selectBoxShiftKey = e.shiftKey;
-        isSelectingBox = true;
-      }
     }
   });
 
   window.addEventListener('mousemove', (e) => {
-    // Update build ghost position
-    if (buildMode && world) {
-      const worldPos = screenToWorld(e.clientX, e.clientY);
-      buildGhostX = worldPos.x;
-      buildGhostY = worldPos.y;
-    }
-
-    // Update selection box
-    if (isSelectingBox && world) {
-      const worldPos = screenToWorld(e.clientX, e.clientY);
-      selectBoxEndX = worldPos.x;
-      selectBoxEndY = worldPos.y;
-    }
+    // Build mode and selection box disabled - interactions through avatar only
 
     if (isDragging) {
       const dx = e.clientX - dragStartX;
@@ -436,33 +401,13 @@ document.addEventListener('DOMContentLoaded', () => {
       isDragging = false;
       isRightClickAction = false;
       canvas.style.cursor = 'default';
-      if (!isRightClickDrag && selectedActors.length > 0 && world) {
-        handleRightClick(e.clientX, e.clientY);
-      }
+      // Right-click commands disabled - interactions through avatar only
     }
     if (e.button === 0 && isMinimapDragging) {
       isMinimapDragging = false;
       canvas.style.cursor = 'default';
     }
-    // Handle selection box completion
-    if (e.button === 0 && isSelectingBox && world) {
-      isSelectingBox = false;
-      const worldPos = screenToWorld(e.clientX, e.clientY);
-      selectBoxEndX = worldPos.x;
-      selectBoxEndY = worldPos.y;
-
-      // Check if this was a drag (box) or a click
-      const boxWidth = Math.abs(selectBoxEndX - selectBoxStartX);
-      const boxHeight = Math.abs(selectBoxEndY - selectBoxStartY);
-
-      if (boxWidth > 10 || boxHeight > 10) {
-        // Box selection
-        handleBoxSelection(selectBoxShiftKey);
-      } else {
-        // Single click selection
-        handleLeftClick(e.clientX, e.clientY, selectBoxShiftKey);
-      }
-    }
+    // Selection box disabled - interactions through avatar only
   });
 
   canvas.addEventListener('contextmenu', (e) => {
@@ -1081,10 +1026,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get all vision sources for this player
     const visionSources = [];
 
-    // Add own units and buildings
+    // Add own units, buildings, and avatar
     const actors = world.getAllActors();
     for (const actor of actors) {
-      if (actor.ownerId === myPlayerId && (actor.type === 'unit' || actor.type === 'building')) {
+      if (actor.ownerId === myPlayerId && (actor.type === 'unit' || actor.type === 'building' || actor.type === 'avatar')) {
         visionSources.push({
           x: actor.x,
           y: actor.y,
@@ -1743,8 +1688,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const avatar = world?.getPlayerAvatar(myPlayerId);
     const isCarrying = avatar?.carriedUnitId != null;
     const hint = isCarrying
-      ? 'WASD: Move | E: Drop unit | Walk near buildings to interact'
-      : 'WASD: Move | E: Pick up unit | Walk near buildings to interact';
+      ? 'WASD: Move | E: Drop unit | Near buildings to train'
+      : 'WASD: Move | E: Pick up unit | Near buildings to train';
     ctx.fillText(hint, 10, canvas.height - 10);
   }
 

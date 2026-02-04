@@ -1146,13 +1146,13 @@ class GameLoop {
     // Check if ball touches goal vertically (ball edge overlaps goal area)
     const touchesGoalVertically = (ball.y + ballRadius > goalTop) && (ball.y - ballRadius < goalBottom);
 
-    // Left goal (Player 2 wins if ball touches)
+    // Left goal (blue) - Player 0 scores here
     if ((ball.x - ballRadius < goalWidth) && touchesGoalVertically) {
-      this.endGame(this.getPlayerByIndex(1)); // Player 2 wins
+      this.endGame(this.getPlayerByIndex(0));
     }
-    // Right goal (Player 1 wins if ball touches)
+    // Right goal (red) - Player 1 scores here
     else if ((ball.x + ballRadius > worldWidth - goalWidth) && touchesGoalVertically) {
-      this.endGame(this.getPlayerByIndex(0)); // Player 1 wins
+      this.endGame(this.getPlayerByIndex(1));
     }
   }
 
