@@ -18,3 +18,42 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# C# / .NET
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.user
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+**/packages/*
+!**/packages/build/
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+build/
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.suo
+*.cache
+*.vspscc
+*.vssscc
+
+# Rider
+*.sln.iml
+
+# dotnet
+project.lock.json
+project.fragment.lock.json
+artifacts/
