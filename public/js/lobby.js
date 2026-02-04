@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
   playerNameInput.value = randomNames[Math.floor(Math.random() * randomNames.length)];
 
   const playAIBtn = document.getElementById('play-ai-btn');
+  const aiTypeSelect = document.getElementById('ai-type-select');
   const createRoomBtn = document.getElementById('create-room-btn');
   const roomIdInput = document.getElementById('room-id-input');
   const joinRoomBtn = document.getElementById('join-room-btn');
@@ -96,7 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Room actions
   playAIBtn.addEventListener('click', () => {
-    network.createRoomWithAI();
+    const aiType = aiTypeSelect.value;
+    network.createRoomWithAI(aiType);
   });
 
   createRoomBtn.addEventListener('click', () => {

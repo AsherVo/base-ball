@@ -66,8 +66,8 @@ function startGame(io, roomId) {
   room.gameLoop = new GameLoop(world, io, roomId, playerStates);
   room.gameLoop.start();
 
-  // If this is an AI room, create and attach the AI player
-  if (room.isAIRoom && room.aiPlayerId) {
+  // If this is an AI room with active AI (not 'empty'), create and attach the AI player
+  if (room.isAIRoom && room.aiPlayerId && room.aiType !== 'empty') {
     const aiPlayerIndex = world.getPlayerIndex(room.aiPlayerId);
     room.aiPlayer = new AIPlayer(room.aiPlayerId, room.gameLoop, aiPlayerIndex);
 
@@ -81,6 +81,8 @@ function startGame(io, roomId) {
     };
 
     console.log(`AI player initialized for room ${roomId}`);
+  } else if (room.isAIRoom && room.aiType === 'empty') {
+    console.log(`Empty AI room ${roomId} - no AI player created`);
   }
 
   // Send initial state to all players with their player index
@@ -152,9 +154,11 @@ function setupSocketHandlers(io) {
     });
 
     // Create a room with AI opponent
-    socket.on('createRoomWithAI', () => {
+    socket.on('createRoomWithAI', (data = {}) => {
       const player = players.get(socket.id);
       if (!player) return;
+
+      const aiType = data.aiType || 'normal';
 
       // Leave current room if in one
       if (player.roomId) {
@@ -163,6 +167,7 @@ function setupSocketHandlers(io) {
 
       const roomId = generateRoomId();
       const aiPlayerId = 'AI_' + roomId;
+      const aiName = aiType === 'empty' ? 'Empty AI' : 'AI Opponent';
 
       rooms.set(roomId, {
         id: roomId,
@@ -170,13 +175,14 @@ function setupSocketHandlers(io) {
         host: socket.id,
         readyPlayers: new Set(),
         isAIRoom: true,
-        aiPlayerId: aiPlayerId
+        aiPlayerId: aiPlayerId,
+        aiType: aiType
       });
 
       // Create a fake AI player entry
       players.set(aiPlayerId, {
         id: aiPlayerId,
-        name: 'AI Opponent',
+        name: aiName,
         roomId: roomId
       });
 
@@ -188,7 +194,7 @@ function setupSocketHandlers(io) {
         roomId,
         players: [
           { id: player.id, name: player.name },
-          { id: aiPlayerId, name: 'AI Opponent' }
+          { id: aiPlayerId, name: aiName }
         ]
       });
 
@@ -196,11 +202,11 @@ function setupSocketHandlers(io) {
       socket.emit('matchReady', {
         players: [
           { id: player.id, name: player.name },
-          { id: aiPlayerId, name: 'AI Opponent' }
+          { id: aiPlayerId, name: aiName }
         ]
       });
 
-      console.log(`AI Room ${roomId} created by ${player.name}`);
+      console.log(`AI Room ${roomId} (${aiType}) created by ${player.name}`);
     });
 
     // Join existing room
