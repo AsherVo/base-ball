@@ -52,26 +52,23 @@ This project is now a functional RTS game prototype with all core mechanics impl
 - **Resources**: Mineral nodes that deplete when gathered
 - **Ball**: Physics-enabled ball that can be pushed toward goals
 
-### Camera Controls (Complete)
-- Pan with WASD or arrow keys (smooth, frame-rate independent)
-- Pan with middle-click or right-click drag
+### Avatar-Based Control System (Complete)
+- Each player controls an avatar (diamond-shaped entity)
+- WASD/arrow keys move the avatar around the map
+- Camera automatically follows the avatar with smooth lerp
+- E key to pick up friendly units (one at a time)
+- E key again to drop the carried unit
+- Walk near buildings to interact (proximity-based UI)
+- Building interaction panel appears when near owned buildings
+- Dropped units become stationary and auto-attack only (don't move or chase)
+- Avatars collide with other entities and can push the ball
+- Minimap shows avatars as diamonds
 - Zoom with mouse scroll wheel (zooms toward cursor position)
 - Zoom with +/- keys
 - Zoom range: 50% to 200%
 - Camera clamped to map boundaries with padding
-- MacBook trackpad support: two-finger scroll to pan, pinch to zoom
-- Auto-detection of trackpad vs mouse input
+- MacBook trackpad support: pinch to zoom
 - Minimap in lower-left corner showing map overview, actors, goals, and camera viewport
-
-### Unit Selection & Commands (Complete)
-- Left-click on unit to select (green selection indicator)
-- Shift+click to add/remove from selection
-- Unit info panel shows ID, type, health, position, and available actions
-- Press Escape to deselect all
-- Right-click to issue context-sensitive commands:
-  - Move to empty space
-  - Attack enemy units/buildings
-  - Gather from resource nodes
 
 ### Resource Gathering (Complete)
 - Workers can be sent to mineral nodes via right-click
@@ -107,7 +104,7 @@ This project is now a functional RTS game prototype with all core mechanics impl
 
 ### Ball & Win Condition (Complete)
 - Ball spawns in center of map
-- Press P with units selected to push ball away
+- Units and avatars push ball when they collide with it
 - Ball has velocity, friction, and bounces off map edges
 - Goals at left and right edges of map
 - Ball entering goal ends game with victory for the scoring team

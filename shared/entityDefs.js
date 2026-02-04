@@ -85,6 +85,16 @@ const EntityDefs = {
       subtype: 'ball',
       radius: 120,
       visionRadius: 300  // Both players get vision from the ball
+    },
+    avatar: {
+      type: 'avatar',
+      subtype: 'avatar',
+      health: 200,
+      speed: 150,
+      radius: 20,
+      visionRadius: 400,
+      pickupRange: 50,
+      interactionRange: 100
     }
   }
 };

@@ -55,10 +55,21 @@ document.addEventListener('DOMContentLoaded', () => {
   let selectBoxEndY = 0;
   let selectBoxShiftKey = false;
 
-  // Build mode
+  // Build mode (legacy - keeping for reference)
   let buildMode = null; // null or building type string
   let buildGhostX = 0;
   let buildGhostY = 0;
+
+  // Avatar control state
+  let avatarMoveX = 0;  // -1, 0, or 1
+  let avatarMoveY = 0;  // -1, 0, or 1
+  let nearbyBuilding = null; // Building within interaction range
+
+  // Client-side prediction for smooth avatar movement
+  let avatarVisualX = null;  // Interpolated position for rendering
+  let avatarVisualY = null;
+  let lastServerAvatarX = null;
+  let lastServerAvatarY = null;
 
   // Visual effects
   const attackEffects = []; // {x, y, targetX, targetY, time}
@@ -134,16 +145,30 @@ document.addEventListener('DOMContentLoaded', () => {
       myPlayerState = data.playerState;
     }
 
-    // Center camera on player's base
-    const myBase = world.getPlayerBase(myPlayerId);
-    if (myBase) {
-      cameraX = myBase.x - canvas.width / 2;
-      cameraY = myBase.y - canvas.height / 2;
+    // Reset avatar visual position for client-side prediction
+    avatarVisualX = null;
+    avatarVisualY = null;
+    avatarMoveX = 0;
+    avatarMoveY = 0;
+
+    // Center camera on player's avatar (or base as fallback)
+    const myAvatar = world.getPlayerAvatar(myPlayerId);
+    if (myAvatar) {
+      avatarVisualX = myAvatar.x;
+      avatarVisualY = myAvatar.y;
+      cameraX = myAvatar.x - canvas.width / 2;
+      cameraY = myAvatar.y - canvas.height / 2;
     } else {
-      const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
-      const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
-      cameraX = (worldPixelWidth - canvas.width) / 2;
-      cameraY = (worldPixelHeight - canvas.height) / 2;
+      const myBase = world.getPlayerBase(myPlayerId);
+      if (myBase) {
+        cameraX = myBase.x - canvas.width / 2;
+        cameraY = myBase.y - canvas.height / 2;
+      } else {
+        const worldPixelWidth = world.width * CONSTANTS.TILE_WIDTH;
+        const worldPixelHeight = world.height * CONSTANTS.TILE_HEIGHT;
+        cameraX = (worldPixelWidth - canvas.width) / 2;
+        cameraY = (worldPixelHeight - canvas.height) / 2;
+      }
     }
 
     clampCamera();
@@ -232,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
     exitBuildMode();
   });
 
-  // Camera controls - Keyboard
+  // Avatar & Camera controls - Keyboard
   window.addEventListener('keydown', (e) => {
     keysPressed.add(e.key.toLowerCase());
 
@@ -243,40 +268,49 @@ document.addEventListener('DOMContentLoaded', () => {
       zoomCamera(-CONSTANTS.CAMERA_ZOOM_SPEED);
     }
 
-    // Escape key - deselect or exit build mode
+    // Escape key - close building interaction panel
     if (e.key === 'Escape') {
-      if (buildMode) {
-        exitBuildMode();
-      } else {
-        deselectAll();
+      hideBuildingInteractionPanel();
+    }
+
+    // E key - pickup/drop unit
+    if (e.key === 'e' || e.key === 'E') {
+      const avatar = world?.getPlayerAvatar(myPlayerId);
+      if (avatar) {
+        if (avatar.carriedUnitId != null) {
+          // Drop the unit
+          network.sendCommand(Commands.dropUnit());
+        } else {
+          // Pick up a unit
+          network.sendCommand(Commands.pickupUnit());
+        }
       }
     }
 
-    // B key - open build menu if worker selected
-    if (e.key === 'b' || e.key === 'B') {
-      if (hasSelectedWorker()) {
-        toggleBuildMenu();
-      }
-    }
-
-    // P key - push ball
-    if (e.key === 'p' || e.key === 'P') {
-      if (selectedActors.length > 0) {
-        sendPushBallCommand();
-      }
-    }
-
-    // S key - stop
-    if (e.key === 's' && !keysPressed.has('control')) {
-      if (selectedActors.length > 0) {
-        sendStopCommand();
-      }
-    }
+    // Update avatar movement direction
+    updateAvatarMoveDirection();
   });
 
   window.addEventListener('keyup', (e) => {
     keysPressed.delete(e.key.toLowerCase());
+    // Update avatar movement direction when key released
+    updateAvatarMoveDirection();
   });
+
+  // Update avatar movement direction based on keys pressed
+  function updateAvatarMoveDirection() {
+    const newMoveX = (keysPressed.has('d') || keysPressed.has('arrowright') ? 1 : 0) -
+                     (keysPressed.has('a') || keysPressed.has('arrowleft') ? 1 : 0);
+    const newMoveY = (keysPressed.has('s') || keysPressed.has('arrowdown') ? 1 : 0) -
+                     (keysPressed.has('w') || keysPressed.has('arrowup') ? 1 : 0);
+
+    // Only send command if direction changed
+    if (newMoveX !== avatarMoveX || newMoveY !== avatarMoveY) {
+      avatarMoveX = newMoveX;
+      avatarMoveY = newMoveY;
+      network.sendCommand(Commands.avatarMove(avatarMoveX, avatarMoveY));
+    }
+  }
 
   // Camera controls - Mouse wheel / trackpad
   canvas.addEventListener('wheel', (e) => {
@@ -779,6 +813,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (myPlayerState) {
       mineralsDisplay.textContent = `Minerals: ${myPlayerState.minerals}`;
       supplyDisplay.textContent = `Supply: ${myPlayerState.supply}/${myPlayerState.maxSupply}`;
+      // Update building interaction panel buttons if visible
+      updateBuildingInteractionButtons();
     }
   }
 
@@ -892,16 +928,39 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function update(deltaTime) {
-    // Handle keyboard camera panning
+    // Client-side prediction and camera follow for avatar
     if (world) {
-      const panSpeed = CONSTANTS.CAMERA_PAN_SPEED / cameraZoom;
-      const panAmount = panSpeed * deltaTime;
+      const avatar = world.getPlayerAvatar(myPlayerId);
+      if (avatar) {
+        // Initialize visual position if needed
+        if (avatarVisualX === null) {
+          avatarVisualX = avatar.x;
+          avatarVisualY = avatar.y;
+        }
 
-      if (keysPressed.has('w') || keysPressed.has('arrowup')) cameraY -= panAmount;
-      if (keysPressed.has('s') || keysPressed.has('arrowdown')) cameraY += panAmount;
-      if (keysPressed.has('a') || keysPressed.has('arrowleft')) cameraX -= panAmount;
-      if (keysPressed.has('d') || keysPressed.has('arrowright')) cameraX += panAmount;
-      clampCamera();
+        // Smooth interpolation toward server position
+        // Use faster interpolation when moving for responsiveness
+        const isMoving = avatarMoveX !== 0 || avatarMoveY !== 0;
+        const lerpSpeed = isMoving ? 20 : 10;
+
+        avatarVisualX += (avatar.x - avatarVisualX) * lerpSpeed * deltaTime;
+        avatarVisualY += (avatar.y - avatarVisualY) * lerpSpeed * deltaTime;
+
+        // Snap if very close to prevent micro-jitter
+        if (Math.abs(avatar.x - avatarVisualX) < 0.5) avatarVisualX = avatar.x;
+        if (Math.abs(avatar.y - avatarVisualY) < 0.5) avatarVisualY = avatar.y;
+
+        // Smooth camera follow (use visual position for smoothness)
+        const targetCameraX = avatarVisualX - canvas.width / (2 * cameraZoom);
+        const targetCameraY = avatarVisualY - canvas.height / (2 * cameraZoom);
+        const cameraLerpSpeed = 8 * deltaTime;
+        cameraX += (targetCameraX - cameraX) * cameraLerpSpeed;
+        cameraY += (targetCameraY - cameraY) * cameraLerpSpeed;
+        clampCamera();
+      }
+
+      // Update proximity UI
+      updateProximityUI();
     }
 
     // Update attack effects
@@ -911,6 +970,94 @@ document.addEventListener('DOMContentLoaded', () => {
         attackEffects.splice(i, 1);
       }
     }
+  }
+
+  // Check for buildings in proximity and show/hide interaction UI
+  function updateProximityUI() {
+    const avatar = world?.getPlayerAvatar(myPlayerId);
+    if (!avatar) {
+      hideBuildingInteractionPanel();
+      return;
+    }
+
+    const avatarDef = EntityDefs.special?.avatar;
+    const interactionRange = avatarDef?.interactionRange || 100;
+
+    // Find buildings in range
+    const buildings = world.getBuildingsInRange(avatar.x, avatar.y, interactionRange, myPlayerId);
+
+    // Filter to completed buildings that can train
+    const interactableBuildings = buildings.filter(b =>
+      b.state !== 'constructing' && EntityDefs.buildings[b.subtype]?.trains?.length > 0
+    );
+
+    if (interactableBuildings.length > 0) {
+      // Show UI for closest building
+      let closestBuilding = null;
+      let closestDist = Infinity;
+      for (const building of interactableBuildings) {
+        const dx = building.x - avatar.x;
+        const dy = building.y - avatar.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < closestDist) {
+          closestDist = dist;
+          closestBuilding = building;
+        }
+      }
+
+      if (closestBuilding && closestBuilding.id !== nearbyBuilding?.id) {
+        nearbyBuilding = closestBuilding;
+        showBuildingInteractionPanel(closestBuilding);
+      }
+    } else {
+      if (nearbyBuilding) {
+        nearbyBuilding = null;
+        hideBuildingInteractionPanel();
+      }
+    }
+  }
+
+  // Show the building interaction panel
+  function showBuildingInteractionPanel(building) {
+    const panel = document.getElementById('building-interaction-panel');
+    const title = document.getElementById('building-title');
+    const actionsDiv = document.getElementById('building-actions');
+
+    title.textContent = building.subtype.charAt(0).toUpperCase() + building.subtype.slice(1);
+    actionsDiv.innerHTML = '';
+
+    const def = EntityDefs.buildings[building.subtype];
+    if (def && def.trains) {
+      def.trains.forEach(unitType => {
+        const unitDef = EntityDefs.units[unitType];
+        const btn = document.createElement('button');
+        btn.textContent = `Train ${unitType} (${unitDef.cost})`;
+        btn.disabled = !myPlayerState || myPlayerState.minerals < unitDef.cost;
+        btn.dataset.cost = unitDef.cost;
+        btn.addEventListener('click', () => {
+          network.sendCommand(Commands.interactBuilding(building.id, 'train', { unitType }));
+        });
+        actionsDiv.appendChild(btn);
+      });
+    }
+
+    panel.classList.remove('hidden');
+  }
+
+  // Hide the building interaction panel
+  function hideBuildingInteractionPanel() {
+    const panel = document.getElementById('building-interaction-panel');
+    panel.classList.add('hidden');
+  }
+
+  // Update building interaction panel button states
+  function updateBuildingInteractionButtons() {
+    const actionsDiv = document.getElementById('building-actions');
+    const buttons = actionsDiv.querySelectorAll('button');
+    buttons.forEach(btn => {
+      const cost = parseInt(btn.dataset.cost, 10);
+      btn.disabled = !myPlayerState || myPlayerState.minerals < cost;
+    });
   }
 
   // Fog of War functions
@@ -1182,12 +1329,19 @@ document.addEventListener('DOMContentLoaded', () => {
         continue; // Skip rendering enemy actors in fog
       }
 
+      // Skip carried units (they're drawn with their avatar)
+      if (actor.type === 'unit' && actor.isCarried) {
+        continue;
+      }
+
       if (actor.type === 'ball') {
         drawBall(actor);
       } else if (actor.type === 'resource') {
         drawResource(actor);
       } else if (actor.type === 'building') {
         drawBuilding(actor);
+      } else if (actor.type === 'avatar') {
+        drawAvatar(actor);
       } else {
         drawUnit(actor);
       }
@@ -1249,6 +1403,125 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.font = `${10 * cameraZoom}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(`+${actor.carryAmount}`, screenX, screenY + radius + 12 * cameraZoom);
+    }
+
+    // Auto-attack indicator for placed units
+    if (actor.autoAttackOnly) {
+      ctx.strokeStyle = '#ffa64a';
+      ctx.lineWidth = 2 * cameraZoom;
+      ctx.setLineDash([3 * cameraZoom, 3 * cameraZoom]);
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius + 3 * cameraZoom, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function drawAvatar(actor) {
+    // Use visual position for own avatar (client-side prediction)
+    const isMyAvatar = actor.ownerId === myPlayerId;
+    const drawX = (isMyAvatar && avatarVisualX !== null) ? avatarVisualX : actor.x;
+    const drawY = (isMyAvatar && avatarVisualY !== null) ? avatarVisualY : actor.y;
+
+    const screenX = (drawX - cameraX) * cameraZoom;
+    const screenY = (drawY - cameraY) * cameraZoom;
+    const radius = (actor.radius || 20) * cameraZoom;
+
+    if (screenX < -radius * 2 || screenX > canvas.width + radius * 2 ||
+        screenY < -radius * 2 || screenY > canvas.height + radius * 2) {
+      return;
+    }
+
+    const playerIndex = world.getPlayerIndex(actor.ownerId);
+    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+
+    // Highlight my avatar with a glow
+    if (isMyAvatar) {
+      ctx.shadowColor = '#4aff4a';
+      ctx.shadowBlur = 15 * cameraZoom;
+    }
+
+    // Draw diamond shape for avatar
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(screenX, screenY - radius);
+    ctx.lineTo(screenX + radius, screenY);
+    ctx.lineTo(screenX, screenY + radius);
+    ctx.lineTo(screenX - radius, screenY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Outline
+    ctx.strokeStyle = isMyAvatar ? '#4aff4a' : '#fff';
+    ctx.lineWidth = 3 * cameraZoom;
+    ctx.stroke();
+
+    // Reset shadow
+    ctx.shadowBlur = 0;
+
+    // Center indicator
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Health bar
+    drawHealthBar(screenX, screenY - radius - 12 * cameraZoom, actor);
+
+    // Draw carried unit above avatar
+    if (actor.carriedUnitId != null) {
+      const carriedUnit = world.getActor(actor.carriedUnitId);
+      if (carriedUnit) {
+        drawCarriedUnit(screenX, screenY - radius - 30 * cameraZoom, carriedUnit);
+      }
+    }
+
+    // Interaction range indicator for my avatar
+    if (isMyAvatar && nearbyBuilding) {
+      const avatarDef = EntityDefs.special?.avatar;
+      const interactionRange = (avatarDef?.interactionRange || 100) * cameraZoom;
+      ctx.strokeStyle = 'rgba(255, 166, 74, 0.3)';
+      ctx.lineWidth = 2 * cameraZoom;
+      ctx.setLineDash([5 * cameraZoom, 5 * cameraZoom]);
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, interactionRange, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function drawCarriedUnit(screenX, screenY, unit) {
+    const radius = (unit.radius || 16) * cameraZoom * 0.7; // Slightly smaller
+    const playerIndex = world.getPlayerIndex(unit.ownerId);
+    const color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
+
+    // Draw floating effect
+    ctx.fillStyle = 'rgba(74, 255, 74, 0.3)';
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius + 4 * cameraZoom, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Unit body
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Outline
+    ctx.strokeStyle = '#4aff4a';
+    ctx.lineWidth = 2 * cameraZoom;
+    ctx.stroke();
+
+    // Type indicator
+    if (unit.subtype === 'worker') {
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, radius * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (unit.subtype === 'soldier') {
+      ctx.fillStyle = '#fff';
+      const size = radius * 0.4;
+      ctx.fillRect(screenX - size/2, screenY - size/2, size, size);
     }
   }
 
@@ -1467,9 +1740,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     ctx.fillStyle = '#888888';
     ctx.font = '12px sans-serif';
-    const hint = buildMode
-      ? 'Click to place building | Escape: Cancel'
-      : 'Left: Select | Right: Command | B: Build | P: Push Ball | WASD: Pan';
+    const avatar = world?.getPlayerAvatar(myPlayerId);
+    const isCarrying = avatar?.carriedUnitId != null;
+    const hint = isCarrying
+      ? 'WASD: Move | E: Drop unit | Walk near buildings to interact'
+      : 'WASD: Move | E: Pick up unit | Walk near buildings to interact';
     ctx.fillText(hint, 10, canvas.height - 10);
   }
 
@@ -1563,6 +1838,10 @@ document.addEventListener('DOMContentLoaded', () => {
         color = '#fff';
       } else if (actor.type === 'resource') {
         color = '#4aefff';
+      } else if (actor.type === 'avatar') {
+        dotRadius = 6;
+        const playerIndex = world.getPlayerIndex(actor.ownerId);
+        color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
       } else {
         const playerIndex = world.getPlayerIndex(actor.ownerId);
         color = playerIndex != null ? CONSTANTS.TEAM_COLORS[playerIndex] : '#888';
@@ -1570,9 +1849,20 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
+      if (actor.type === 'avatar') {
+        // Draw diamond for avatar
+        ctx.beginPath();
+        ctx.moveTo(dotX, dotY - dotRadius);
+        ctx.lineTo(dotX + dotRadius, dotY);
+        ctx.lineTo(dotX, dotY + dotRadius);
+        ctx.lineTo(dotX - dotRadius, dotY);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Draw fog overlay on minimap

@@ -112,9 +112,26 @@ supplyDepot: { health: 200, cost: 100, buildTime: 10, suppliesProvided: 8, visio
 // Resources
 minerals: { amount: 1500, gatherRate: 10 }
 
-// Ball (provides vision to both players)
-ball: { radius: 120, visionRadius: 300 }
+// Special
+ball:   { radius: 120, visionRadius: 300 }  // Provides vision to both players
+avatar: { health: 200, speed: 150, radius: 20, visionRadius: 400, pickupRange: 50, interactionRange: 100 }
 ```
+
+### Avatar Control System
+
+The game uses an avatar-based control scheme instead of traditional RTS selection:
+
+- Each player controls a diamond-shaped avatar entity
+- WASD/arrows move the avatar directly (server tracks movement direction)
+- Camera automatically follows the avatar with smooth interpolation
+- Units are picked up (E key) and carried by the avatar
+- Dropped units become stationary and auto-attack only
+- Building interaction is proximity-based (walk near building to see train UI)
+
+Actor properties for avatar system:
+- `carriedUnitId` - ID of unit being carried (on avatar)
+- `isCarried` - Flag for units being carried
+- `autoAttackOnly` - Flag for placed units (attack but don't move)
 
 ## Data Flow
 
@@ -124,7 +141,7 @@ Session data (room ID, player info) passes between lobby and game pages via brow
 ### Command Flow
 ```
 User Input (game.js)
-    → Commands.move(unitIds, x, y)
+    → Commands.avatarMove(dirX, dirY) or Commands.pickupUnit() etc.
     → network.sendCommand(command)
     → Socket.io → Server
     → GameLoop.queueCommand(playerId, command)
@@ -135,6 +152,14 @@ User Input (game.js)
     → World.fromJSON(data.world)
     → Render updated state
 ```
+
+### Avatar Command Types
+| Command | Purpose |
+|---------|---------|
+| `AVATAR_MOVE` | Set avatar movement direction (-1/0/1 for x and y) |
+| `PICKUP_UNIT` | Pick up nearest unit within pickup range |
+| `DROP_UNIT` | Drop carried unit at avatar's position |
+| `INTERACT_BUILDING` | Interact with nearby building (e.g., train unit) |
 
 ## Socket Events
 
@@ -202,6 +227,7 @@ User Input (game.js)
 - Octagonal shape with diagonal corner cut-offs (300px from each corner)
 - Bases placed 200px from left/right edges
 - 4 workers spawn around each base
+- Avatar spawns 100px toward center from each base
 - 2 mineral patches near each base, 2 in contested center
 - Ball spawns at exact center
 - Goals span the middle vertical section of each edge

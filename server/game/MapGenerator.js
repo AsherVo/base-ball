@@ -35,6 +35,10 @@ class MapGenerator {
         const workerY = baseY + Math.sin(angle) * workerSpawnRadius;
         world.createActorFromDef('unit', 'worker', workerX, workerY, playerId);
       }
+
+      // Create avatar near base
+      const avatarOffsetX = index === 0 ? 100 : -100; // Spawn avatar toward center
+      const avatar = world.createActorFromDef('avatar', 'avatar', baseX + avatarOffsetX, baseY, playerId);
     });
 
     // Create mineral nodes

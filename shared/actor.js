@@ -50,6 +50,11 @@ class Actor {
     this.velocityX = 0;
     this.velocityY = 0;
 
+    // Avatar-specific
+    this.carriedUnitId = null;  // ID of unit being carried (for avatars)
+    this.isCarried = false;     // Flag for units being carried
+    this.autoAttackOnly = false; // Flag for placed units (attack but don't move)
+
     // Collision radius (used by all types)
     this.radius = 16; // Default for units
 
@@ -98,6 +103,11 @@ class Actor {
       data.targetX = this.targetX;
       data.targetY = this.targetY;
       data.carryAmount = this.carryAmount;
+      data.isCarried = this.isCarried;
+      data.autoAttackOnly = this.autoAttackOnly;
+    } else if (this.type === 'avatar') {
+      data.speed = this.speed;
+      data.carriedUnitId = this.carriedUnitId;
     } else if (this.type === 'building') {
       if (this.state === 'constructing') {
         data.constructionProgress = this.constructionProgress;
@@ -138,6 +148,11 @@ class Actor {
       actor.targetX = data.targetX;
       actor.targetY = data.targetY;
       actor.carryAmount = data.carryAmount || 0;
+      actor.isCarried = data.isCarried || false;
+      actor.autoAttackOnly = data.autoAttackOnly || false;
+    } else if (data.type === 'avatar') {
+      actor.speed = data.speed || 150;
+      actor.carriedUnitId = data.carriedUnitId || null;
     } else if (data.type === 'building') {
       actor.constructionProgress = data.constructionProgress;
       actor.maxConstructionTime = data.maxConstructionTime;

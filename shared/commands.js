@@ -7,7 +7,12 @@ const CommandTypes = {
   GATHER: 'GATHER',
   PUSH_BALL: 'PUSH_BALL',
   TRAIN: 'TRAIN',
-  STOP: 'STOP'
+  STOP: 'STOP',
+  // Avatar commands
+  AVATAR_MOVE: 'AVATAR_MOVE',
+  PICKUP_UNIT: 'PICKUP_UNIT',
+  DROP_UNIT: 'DROP_UNIT',
+  INTERACT_BUILDING: 'INTERACT_BUILDING'
 };
 
 // Create a command object
@@ -75,6 +80,30 @@ const Commands = {
   stop(actorIds) {
     return createCommand(CommandTypes.STOP, {
       actorIds: Array.isArray(actorIds) ? actorIds : [actorIds]
+    });
+  },
+
+  // Avatar commands
+  avatarMove(directionX, directionY) {
+    return createCommand(CommandTypes.AVATAR_MOVE, {
+      directionX,
+      directionY
+    });
+  },
+
+  pickupUnit() {
+    return createCommand(CommandTypes.PICKUP_UNIT, {});
+  },
+
+  dropUnit() {
+    return createCommand(CommandTypes.DROP_UNIT, {});
+  },
+
+  interactBuilding(buildingId, action, actionData = {}) {
+    return createCommand(CommandTypes.INTERACT_BUILDING, {
+      buildingId,
+      action,
+      actionData
     });
   }
 };

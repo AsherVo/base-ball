@@ -47,7 +47,8 @@
         'unit': 'units',
         'building': 'buildings',
         'resource': 'resources',
-        'ball': 'special'
+        'ball': 'special',
+        'avatar': 'special'
       };
       const defCategory = categoryMap[category] || category;
       const def = this.entityDefs[defCategory]?.[subtype];
@@ -56,7 +57,7 @@
       if (def) {
         actor.applyDef(def);
       }
-      actor.type = category === 'ball' ? 'ball' : category;
+      actor.type = (category === 'ball' || category === 'avatar') ? category : category;
       actor.subtype = subtype;
       actor.ownerId = ownerId;
       actor.state = category === 'building' ? 'complete' : 'idle';
@@ -115,6 +116,38 @@
       return this.getAllActors().filter(
         a => a.ownerId != null && a.ownerId !== playerId
       );
+    }
+
+    // Get player's avatar
+    getPlayerAvatar(ownerId) {
+      return this.getAllActors().find(
+        a => a.type === 'avatar' && a.ownerId === ownerId
+      );
+    }
+
+    // Get units within pickup range (owned by the player, not carried)
+    getUnitsInPickupRange(x, y, range, ownerId) {
+      return this.getAllActors().filter(a => {
+        if (a.type !== 'unit') return false;
+        if (a.ownerId !== ownerId) return false;
+        if (a.isCarried) return false;
+        const dx = a.x - x;
+        const dy = a.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        return dist <= range + (a.radius || 16);
+      });
+    }
+
+    // Get buildings within interaction range (owned by the player)
+    getBuildingsInRange(x, y, range, ownerId) {
+      return this.getAllActors().filter(a => {
+        if (a.type !== 'building') return false;
+        if (a.ownerId !== ownerId) return false;
+        const dx = a.x - x;
+        const dy = a.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        return dist <= range + (a.radius || 40);
+      });
     }
 
     // Serialize world state for network transmission

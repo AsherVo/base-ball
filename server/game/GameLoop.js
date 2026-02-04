@@ -22,6 +22,12 @@ class GameLoop {
     for (const playerId of players.keys()) {
       this.commandQueues.set(playerId, []);
     }
+
+    // Avatar movement directions per player (continuous input)
+    this.avatarMoveDirections = new Map();
+    for (const playerId of players.keys()) {
+      this.avatarMoveDirections.set(playerId, { x: 0, y: 0 });
+    }
   }
 
   start() {
@@ -115,6 +121,18 @@ class GameLoop {
         break;
       case CommandTypes.STOP:
         this.executeStopCommand(playerId, command);
+        break;
+      case CommandTypes.AVATAR_MOVE:
+        this.executeAvatarMoveCommand(playerId, command);
+        break;
+      case CommandTypes.PICKUP_UNIT:
+        this.executePickupUnitCommand(playerId, command);
+        break;
+      case CommandTypes.DROP_UNIT:
+        this.executeDropUnitCommand(playerId, command);
+        break;
+      case CommandTypes.INTERACT_BUILDING:
+        this.executeInteractBuildingCommand(playerId, command);
         break;
     }
   }
@@ -312,8 +330,124 @@ class GameLoop {
     }
   }
 
+  // Avatar move command - store movement direction for continuous movement
+  executeAvatarMoveCommand(playerId, command) {
+    const { directionX, directionY } = command;
+
+    // Create entry if it doesn't exist (handles reconnections, AI games, etc.)
+    let direction = this.avatarMoveDirections.get(playerId);
+    if (!direction) {
+      direction = { x: 0, y: 0 };
+      this.avatarMoveDirections.set(playerId, direction);
+    }
+
+    direction.x = directionX ?? 0;
+    direction.y = directionY ?? 0;
+  }
+
+  // Pickup unit command - pick up the nearest unit within range
+  executePickupUnitCommand(playerId, command) {
+    const avatar = this.world.getPlayerAvatar(playerId);
+    if (!avatar) return;
+
+    // Check if already carrying a unit
+    if (avatar.carriedUnitId != null) return;
+
+    // Get avatar's pickup range from entity definition
+    const avatarDef = this.world.entityDefs.special.avatar;
+    const pickupRange = avatarDef?.pickupRange || 50;
+
+    // Find units in pickup range
+    const nearbyUnits = this.world.getUnitsInPickupRange(avatar.x, avatar.y, pickupRange, playerId);
+    if (nearbyUnits.length === 0) return;
+
+    // Pick up the closest unit
+    let closestUnit = null;
+    let closestDist = Infinity;
+    for (const unit of nearbyUnits) {
+      const dx = unit.x - avatar.x;
+      const dy = unit.y - avatar.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestUnit = unit;
+      }
+    }
+
+    if (closestUnit) {
+      avatar.carriedUnitId = closestUnit.id;
+      closestUnit.isCarried = true;
+      closestUnit.state = 'carried';
+      // Clear any current orders
+      closestUnit.targetX = null;
+      closestUnit.targetY = null;
+      closestUnit.attackTargetId = null;
+      closestUnit.gatherTargetId = null;
+      closestUnit.buildTargetId = null;
+    }
+  }
+
+  // Drop unit command - place the carried unit at avatar's position
+  executeDropUnitCommand(playerId, command) {
+    const avatar = this.world.getPlayerAvatar(playerId);
+    if (!avatar) return;
+
+    // Check if carrying a unit
+    if (avatar.carriedUnitId == null) return;
+
+    const unit = this.world.getActor(avatar.carriedUnitId);
+    if (!unit) {
+      avatar.carriedUnitId = null;
+      return;
+    }
+
+    // Place unit at avatar's position
+    unit.x = avatar.x;
+    unit.y = avatar.y;
+    unit.isCarried = false;
+    unit.autoAttackOnly = true; // Placed units only auto-attack, don't move
+    unit.state = 'idle';
+
+    avatar.carriedUnitId = null;
+  }
+
+  // Interact building command - interact with a nearby building
+  executeInteractBuildingCommand(playerId, command) {
+    const { buildingId, action, actionData } = command;
+    const avatar = this.world.getPlayerAvatar(playerId);
+    if (!avatar) return;
+
+    const building = this.world.getActor(buildingId);
+    if (!building || building.ownerId !== playerId) return;
+    if (building.type !== 'building') return;
+
+    // Verify avatar is within interaction range
+    const avatarDef = this.world.entityDefs.special.avatar;
+    const interactionRange = avatarDef?.interactionRange || 100;
+    const dx = building.x - avatar.x;
+    const dy = building.y - avatar.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const effectiveRange = interactionRange + (building.radius || 40);
+
+    if (dist > effectiveRange) return;
+
+    // Handle different actions
+    if (action === 'train' && actionData.unitType) {
+      // Delegate to existing train command logic
+      this.executeTrainCommand(playerId, {
+        buildingId,
+        unitType: actionData.unitType
+      });
+    }
+  }
+
   // Update game simulation
   update(deltaTime) {
+    // Update avatars first (they may be carrying units)
+    for (const playerId of this.players.keys()) {
+      this.updateAvatar(playerId, deltaTime);
+    }
+
     // Update all actors
     for (const actor of this.world.getAllActors()) {
       this.updateActor(actor, deltaTime);
@@ -326,6 +460,53 @@ class GameLoop {
     this.checkWinCondition();
   }
 
+  // Update avatar movement
+  updateAvatar(playerId, deltaTime) {
+    const avatar = this.world.getPlayerAvatar(playerId);
+    if (!avatar) return;
+
+    const direction = this.avatarMoveDirections.get(playerId);
+    if (!direction) {
+      // Create entry if missing
+      this.avatarMoveDirections.set(playerId, { x: 0, y: 0 });
+      return;
+    }
+
+    // Skip if no movement input
+    if (direction.x === 0 && direction.y === 0) return;
+
+    // Normalize diagonal movement
+    let moveX = direction.x;
+    let moveY = direction.y;
+    const length = Math.sqrt(moveX * moveX + moveY * moveY);
+    if (length > 0) {
+      moveX /= length;
+      moveY /= length;
+    }
+
+    // Calculate new position
+    const speed = avatar.speed || 150;
+    const newX = avatar.x + moveX * speed * deltaTime;
+    const newY = avatar.y + moveY * speed * deltaTime;
+
+    // Resolve collisions
+    const adjustedPos = this.resolveCollisions(avatar, newX, newY);
+    avatar.x = adjustedPos.x;
+    avatar.y = adjustedPos.y;
+
+    // Update carried unit position
+    if (avatar.carriedUnitId != null) {
+      const carriedUnit = this.world.getActor(avatar.carriedUnitId);
+      if (carriedUnit) {
+        carriedUnit.x = avatar.x;
+        carriedUnit.y = avatar.y;
+      } else {
+        // Carried unit was destroyed
+        avatar.carriedUnitId = null;
+      }
+    }
+  }
+
   // Update a single actor
   updateActor(actor, deltaTime) {
     if (actor.type === 'unit') {
@@ -333,10 +514,14 @@ class GameLoop {
     } else if (actor.type === 'building') {
       this.updateBuilding(actor, deltaTime);
     }
+    // Avatar updates are handled separately in updateAvatar()
   }
 
   // Update unit behavior
   updateUnit(actor, deltaTime) {
+    // Skip carried units - they follow the avatar
+    if (actor.isCarried) return;
+
     // Update attack cooldown
     if (actor.attackCooldown > 0) {
       actor.attackCooldown -= deltaTime;
@@ -345,19 +530,31 @@ class GameLoop {
     // State machine for unit behavior
     switch (actor.state) {
       case 'moving':
-        this.updateMovement(actor, deltaTime);
+        // Auto-attack only units don't move
+        if (!actor.autoAttackOnly) {
+          this.updateMovement(actor, deltaTime);
+        }
         break;
       case 'attacking':
         this.updateAttacking(actor, deltaTime);
         break;
       case 'gathering':
-        this.updateGathering(actor, deltaTime);
+        // Auto-attack only units don't gather
+        if (!actor.autoAttackOnly) {
+          this.updateGathering(actor, deltaTime);
+        }
         break;
       case 'building':
-        this.updateBuildingWorker(actor, deltaTime);
+        // Auto-attack only units don't build
+        if (!actor.autoAttackOnly) {
+          this.updateBuildingWorker(actor, deltaTime);
+        }
         break;
       case 'returning':
-        this.updateReturning(actor, deltaTime);
+        // Auto-attack only units don't return
+        if (!actor.autoAttackOnly) {
+          this.updateReturning(actor, deltaTime);
+        }
         break;
       default:
         // Idle - check for nearby enemies to auto-attack
@@ -419,6 +616,9 @@ class GameLoop {
     for (const other of this.world.getAllActors()) {
       if (other.id === actor.id) continue;
 
+      // Skip carried units - they don't collide
+      if (other.isCarried) continue;
+
       // Skip actors that don't need collision (e.g., the ball is handled separately)
       if (other.type === 'ball') {
         // Push ball if unit walks into it
@@ -453,8 +653,8 @@ class GameLoop {
         if (other.type === 'building' || other.type === 'resource') {
           finalX += normalX * (overlap + 0.1);
           finalY += normalY * (overlap + 0.1);
-        } else if (other.type === 'unit') {
-          // For other units, push both apart equally
+        } else if (other.type === 'unit' || other.type === 'avatar') {
+          // For other units and avatars, push both apart equally
           finalX += normalX * (overlap + 0.1) * 0.5;
           finalY += normalY * (overlap + 0.1) * 0.5;
         }
@@ -525,6 +725,12 @@ class GameLoop {
     const effectiveRange = attackRange + targetRadius;
 
     if (dist > effectiveRange) {
+      // Auto-attack only units don't chase - stop attacking if target moves out of range
+      if (actor.autoAttackOnly) {
+        actor.attackTargetId = null;
+        actor.state = 'idle';
+        return;
+      }
       // Move toward target
       actor.targetX = target.x;
       actor.targetY = target.y;
@@ -866,12 +1072,12 @@ class GameLoop {
     this.resolveBallActorCollisions(ball);
   }
 
-  // Resolve ball collisions with buildings and units
+  // Resolve ball collisions with buildings, units, and avatars
   resolveBallActorCollisions(ball) {
     const ballRadius = ball.radius || 120;
 
     for (const other of this.world.getAllActors()) {
-      if (other.type !== 'building' && other.type !== 'unit') continue;
+      if (other.type !== 'building' && other.type !== 'unit' && other.type !== 'avatar') continue;
 
       const otherRadius = other.radius || (other.type === 'building' ? 40 : 16);
       const minDist = ballRadius + otherRadius;
